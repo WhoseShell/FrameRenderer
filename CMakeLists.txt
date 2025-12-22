@@ -1,0 +1,53 @@
+cmake_minimum_required(VERSION 3.21)
+project(DX12HelloTriangle LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_executable(dx12_hello
+    WIN32
+    src/main.cpp
+    src/Engine/Engine.cpp
+    src/Platform/Windows/WindowsWindow.cpp
+    src/RHI/D3D12RHI.cpp
+    src/Renderer/MeshGeneration.cpp
+    src/Renderer/SceneRenderer.cpp
+    src/Renderer/SimpleSceneRenderer.cpp
+    src/Renderer/Passes/DeferredPass.cpp
+    src/Renderer/Passes/HWRTGIPass.cpp
+    src/Renderer/Passes/LumenSwrtPass.cpp
+    src/Renderer/Passes/LumenPass.cpp
+    src/Renderer/Passes/ShadowPass.cpp
+    src/Renderer/Passes/SkyAtmospherePass.cpp
+    src/Renderer/Passes/SkyIBLPass.cpp
+    src/Renderer/Passes/TonemapPass.cpp
+)
+
+target_include_directories(dx12_hello PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_compile_definitions(dx12_hello PRIVATE
+    UNICODE
+    _UNICODE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    SHADER_DIR=L"${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+)
+
+# D3D12 + DXGI + Shader compiler (D3DCompileFromFile uses D3DCompiler_47.dll)
+target_link_libraries(dx12_hello PRIVATE
+    d3d12
+    dxgi
+    d3dcompiler
+    dxguid
+    comctl32
+)
+
+# Better warnings; keep it simple for learning
+if (MSVC)
+    target_compile_options(dx12_hello PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(dx12_hello PRIVATE -Wall -Wextra -Wpedantic)
+endif()
