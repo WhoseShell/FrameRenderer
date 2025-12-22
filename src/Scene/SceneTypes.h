@@ -1,0 +1,33 @@
+#pragma once
+
+#include <DirectXMath.h>
+
+#include "Core/Types.h"
+
+struct FSceneObject
+{
+    enum class EType : uint8
+    {
+        Sphere,
+        Box,
+        Cone,
+    };
+
+    EType Type = EType::Sphere;
+    DirectX::XMFLOAT3 Position{ 0.0f, 0.0f, 0.0f };
+    DirectX::XMFLOAT3 Scale{ 1.0f, 1.0f, 1.0f };
+    float Radius = 0.75f; // for picking (bounding sphere)
+
+    // Material (simple PBR parameters)
+    DirectX::XMFLOAT3 Albedo{ 0.85f, 0.15f, 0.10f };
+    float Metallic = 0.0f;
+    float Roughness = 0.35f;
+    int MaterialIndex = -1;
+    int MaterialSRVBase = 0; // renderer descriptor table base (5 SRVs)
+
+    float UseAlbedoTex = 0.0f;
+    float UseNormalTex = 0.0f;
+    float UseRoughnessTex = 0.0f;
+    float UseMetallicTex = 0.0f;
+    float UseAOTex = 0.0f;
+};
