@@ -3,9 +3,19 @@
 #include <DirectXMath.h>
 #include <cmath>
 
+/**
+ * @brief 构建一个顶点（位置、法线、颜色与 UV）。
+ * @param p 位置。
+ * @param n 法线。
+ * @param u 纹理 U。
+ * @param vCoord 纹理 V。
+ * @return 生成的 FVertex。
+ * @note 阶段：几何体生成阶段。
+ */
 static FVertex MakeVertex(const DirectX::XMFLOAT3& p, const DirectX::XMFLOAT3& n, float u = 0.0f, float vCoord = 0.0f)
 {
     FVertex vert{};
+    // 位置与法线。
     vert.Pos[0] = p.x; vert.Pos[1] = p.y; vert.Pos[2] = p.z;
     vert.Col[0] = 0.5f + 0.5f * n.x;
     vert.Col[1] = 0.5f + 0.5f * n.y;
@@ -16,10 +26,21 @@ static FVertex MakeVertex(const DirectX::XMFLOAT3& p, const DirectX::XMFLOAT3& n
     return vert;
 }
 
+/**
+ * @brief 生成球体网格（顶点与索引）。
+ * @param slices 水平方向分段数（经度）。
+ * @param stacks 垂直方向分段数（纬度）。
+ * @param radius 球体半径。
+ * @param outVerts 输出顶点数组。
+ * @param outIndices 输出索引数组（uint16）。
+ * @return 无返回值。
+ * @note 阶段：几何体生成/资源准备阶段。
+ */
 void GenerateSphereMesh(uint32 slices, uint32 stacks, float radius, std::vector<FVertex>& outVerts, std::vector<uint16>& outIndices)
 {
     using namespace DirectX;
 
+    // 清空输出并修正最小分段数。
     outVerts.clear();
     outIndices.clear();
 
@@ -29,6 +50,7 @@ void GenerateSphereMesh(uint32 slices, uint32 stacks, float radius, std::vector<
     const float invSlices = 1.0f / float(slices);
     const float invStacks = 1.0f / float(stacks);
 
+    // 生成球面顶点（含 UV 与法线）。
     for (uint32 stack = 0; stack <= stacks; ++stack)
     {
         const float v = float(stack) * invStacks;
@@ -51,6 +73,7 @@ void GenerateSphereMesh(uint32 slices, uint32 stacks, float radius, std::vector<
         }
     }
 
+    // 生成索引（三角形列表）。
     const uint32 stride = slices + 1;
     for (uint32 stack = 0; stack < stacks; ++stack)
     {
@@ -74,10 +97,19 @@ void GenerateSphereMesh(uint32 slices, uint32 stacks, float radius, std::vector<
     }
 }
 
+/**
+ * @brief 生成立方体网格（顶点与索引）。
+ * @param halfExtent 半边长（立方体中心到面距离）。
+ * @param outVerts 输出顶点数组。
+ * @param outIndices 输出索引数组（uint16）。
+ * @return 无返回值。
+ * @note 阶段：几何体生成/资源准备阶段。
+ */
 void GenerateBoxMesh(float halfExtent, std::vector<FVertex>& outVerts, std::vector<uint16>& outIndices)
 {
     using namespace DirectX;
 
+    // 清空输出。
     outVerts.clear();
     outIndices.clear();
 
@@ -89,6 +121,7 @@ void GenerateBoxMesh(float halfExtent, std::vector<FVertex>& outVerts, std::vect
         { -h, -h, +h }, { +h, -h, +h }, { +h, +h, +h }, { -h, +h, +h },
     };
 
+    // 按面添加顶点与索引。
     auto addFace = [&](int i0, int i1, int i2, int i3, const XMFLOAT3& n)
     {
         const uint16 base = (uint16)outVerts.size();
@@ -109,10 +142,21 @@ void GenerateBoxMesh(float halfExtent, std::vector<FVertex>& outVerts, std::vect
     addFace(0, 1, 5, 4, { 0, -1, 0 }); // -Y
 }
 
+/**
+ * @brief 生成圆锥体网格（顶点与索引）。
+ * @param slices 圆周分段数。
+ * @param radius 底面半径。
+ * @param height 圆锥高度。
+ * @param outVerts 输出顶点数组。
+ * @param outIndices 输出索引数组（uint16）。
+ * @return 无返回值。
+ * @note 阶段：几何体生成/资源准备阶段。
+ */
 void GenerateConeMesh(uint32 slices, float radius, float height, std::vector<FVertex>& outVerts, std::vector<uint16>& outIndices)
 {
     using namespace DirectX;
 
+    // 清空输出并修正最小分段数。
     outVerts.clear();
     outIndices.clear();
 
@@ -123,6 +167,7 @@ void GenerateConeMesh(uint32 slices, float radius, float height, std::vector<FVe
     const XMFLOAT3 baseCenter{ 0.0f, -halfH, 0.0f };
 
     // Side vertices: duplicate per-triangle strip for decent normals
+    // 侧面顶点：为法线质量做复制。
     for (uint32 i = 0; i <= slices; ++i)
     {
         const float t = (float)i / (float)slices;
@@ -139,6 +184,7 @@ void GenerateConeMesh(uint32 slices, float radius, float height, std::vector<FVe
         outVerts.push_back(MakeVertex({ x, -halfH, z }, n3, t, 1.0f));
     }
 
+    // 顶点与侧面索引（扇形）。
     const uint16 tipIndex = (uint16)outVerts.size();
     outVerts.push_back(MakeVertex(tip, { 0.0f, 1.0f, 0.0f }, 0.5f, 0.0f));
 
@@ -153,6 +199,7 @@ void GenerateConeMesh(uint32 slices, float radius, float height, std::vector<FVe
     }
 
     // Base cap
+    // 底面圆盘。
     const uint16 baseCenterIndex = (uint16)outVerts.size();
     outVerts.push_back(MakeVertex(baseCenter, { 0.0f, -1.0f, 0.0f }, 0.5f, 0.5f));
 
@@ -166,6 +213,7 @@ void GenerateConeMesh(uint32 slices, float radius, float height, std::vector<FVe
         outVerts.push_back(MakeVertex({ x, -halfH, z }, { 0.0f, -1.0f, 0.0f }, 0.5f + x / (radius * 2.0f), 0.5f + z / (radius * 2.0f)));
     }
 
+    // 底面索引（扇形）。
     for (uint32 i = 0; i < slices; ++i)
     {
         const uint16 i0 = baseRingStart + (uint16)i;

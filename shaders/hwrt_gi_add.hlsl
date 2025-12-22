@@ -62,26 +62,51 @@ struct VSFullOut
     float2 uv   : TEXCOORD0;
 };
 
+/**
+ * @brief 顶点着色器：生成全屏三角形。
+ * @param vid 顶点索引（SV_VertexID）。
+ * @return 顶点输出（位置/UV）。
+ * @note 阶段：GI 合成顶点阶段。
+ */
 VSFullOut VSFullscreen(uint vid : SV_VertexID)
 {
     VSFullOut o;
     float2 pos[3] = { float2(-1.0, -1.0), float2(-1.0, 3.0), float2(3.0, -1.0) };
     float2 uv[3] = { float2(0.0, 1.0), float2(0.0, -1.0), float2(2.0, 1.0) };
+    // 输出全屏三角形位置与 UV。
     o.posH = float4(pos[vid], 0.0, 1.0);
     o.uv = uv[vid];
     return o;
 }
 
+/**
+ * @brief 读取半分辨率 GI。
+ * @param giUv GI 纹理 UV。
+ * @return GI 颜色。
+ * @note 阶段：GI 采样阶段。
+ */
 float3 ReadGI(float2 giUv)
 {
     return g_giFiltered.SampleLevel(g_samp, giUv, 0).rgb;
 }
 
+/**
+ * @brief 读取 GI 元数据（法线+深度）。
+ * @param giUv GI 纹理 UV。
+ * @return 元数据。
+ * @note 阶段：GI 采样阶段。
+ */
 float4 ReadMeta(float2 giUv)
 {
     return (g_frameParity < 0.5) ? g_giMeta0.SampleLevel(g_samp, giUv, 0) : g_giMeta1.SampleLevel(g_samp, giUv, 0);
 }
 
+/**
+ * @brief 像素着色器：双边上采样 GI 并合成。
+ * @param i 插值后的顶点输出。
+ * @return 输出 GI 颜色。
+ * @note 阶段：GI 合成像素阶段。
+ */
 float4 PSAddGI(VSFullOut i) : SV_Target
 {
     float4 gb1 = g_gbuffer1.Sample(g_samp, i.uv);
@@ -101,6 +126,7 @@ float4 PSAddGI(VSFullOut i) : SV_Target
     float3 sum = float3(0.0, 0.0, 0.0);
     float wsum = 0.0;
 
+    // 2x2 邻域双边权重融合。
     [unroll]
     for (int dy = 0; dy <= 1; ++dy)
     {

@@ -56,9 +56,16 @@ struct PSIn
     float2 uv   : TEXCOORD2;
 };
 
+/**
+ * @brief 顶点着色器：输出世界空间信息与裁剪空间位置。
+ * @param i 顶点输入。
+ * @return 顶点输出（世界位置/法线/UV）。
+ * @note 阶段：PBR 顶点阶段。
+ */
 PSIn VSMain(VSIn i)
 {
     PSIn o;
+    // 计算世界空间位置与法线。
     float4 posW = mul(float4(i.pos, 1.0), g_world);
     o.posW = posW.xyz;
     o.nrmW = normalize(mul(i.nrm, (float3x3)g_worldInvTranspose));
@@ -71,6 +78,12 @@ PSIn VSMain(VSIn i)
 #include "pbr_common.hlsl"
 #include "shadow_common.hlsl"
 
+/**
+ * @brief 像素着色器：计算 PBR 光照与 IBL。
+ * @param i 插值后的像素输入。
+ * @return 输出 HDR 颜色。
+ * @note 阶段：PBR 像素阶段。
+ */
 float4 PSMain(PSIn i) : SV_Target
 {
     float3 N = normalize(i.nrmW);
@@ -79,6 +92,7 @@ float4 PSMain(PSIn i) : SV_Target
     // Normal map (tangent basis approximated from world up)
     if (g_useNormalTex > 0.5)
     {
+        // 根据法线贴图修正法线。
         float3 nm = g_normalTex.Sample(g_samp, i.uv).xyz * 2.0 - 1.0;
         float3 up = abs(N.y) < 0.999 ? float3(0, 1, 0) : float3(1, 0, 0);
         float3 T = normalize(cross(up, N));
@@ -86,6 +100,7 @@ float4 PSMain(PSIn i) : SV_Target
         N = normalize(T * nm.x + B * nm.y + N * nm.z);
     }
 
+    // 计算光照方向与辐射度。
     float3 L = normalize(-g_lightDirWs); // to-light
     float3 radiance = g_lightColor * g_lightIntensity;
 
@@ -100,10 +115,12 @@ float4 PSMain(PSIn i) : SV_Target
     float roughness = saturate(lerp(g_roughness, roughTex, g_useRoughnessTex));
     float ao = saturate(lerp(1.0, aoTex, g_useAOTex));
 
+    // 直接光照 + 阴影。
     float shadow = ComputeShadowFactor(i.posW);
     float3 color = BRDF_UEStyle(N, V, L, albedo, metallic, roughness) * radiance * shadow;
 
     // Ambient: tiny diffuse + simple specular IBL approximation.
+    // 叠加 IBL 环境光。
     color = ApplySimpleIBL(color, albedo, metallic, roughness, N, V, ao);
 
     // Output linear HDR; tonemapping happens in a separate post-process pass.

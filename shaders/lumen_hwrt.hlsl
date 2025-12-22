@@ -90,6 +90,12 @@ SamplerState g_samp : register(s0);
 
 #include "pbr_common.hlsl"
 
+/**
+ * @brief 哈希函数，用于随机种子扰动。
+ * @param x 输入值。
+ * @return 哈希后的值。
+ * @note 阶段：随机序列生成阶段。
+ */
 uint Hash(uint x)
 {
     x ^= x >> 16;
@@ -100,12 +106,25 @@ uint Hash(uint x)
     return x;
 }
 
+/**
+ * @brief 生成 [0,1) 随机数。
+ * @param seed 输入/输出随机种子。
+ * @return 随机浮点数。
+ * @note 阶段：随机采样阶段。
+ */
 float Rand01(inout uint seed)
 {
     seed = Hash(seed);
     return (seed & 0x00FFFFFFu) / 16777216.0;
 }
 
+/**
+ * @brief 构建法线空间正交基。
+ * @param N 法线方向。
+ * @param T 输出切线方向。
+ * @param B 输出副切线方向。
+ * @note 阶段：采样方向生成阶段。
+ */
 void MakeBasis(float3 N, out float3 T, out float3 B)
 {
     float3 up = (abs(N.y) < 0.999) ? float3(0, 1, 0) : float3(1, 0, 0);
@@ -113,6 +132,13 @@ void MakeBasis(float3 N, out float3 T, out float3 B)
     B = normalize(cross(N, T));
 }
 
+/**
+ * @brief 余弦加权半球采样方向。
+ * @param N 法线方向。
+ * @param seed 输入/输出随机种子。
+ * @return 采样方向。
+ * @note 阶段：GI 采样阶段。
+ */
 float3 SampleHemisphereCos(float3 N, inout uint seed)
 {
     float r1 = Rand01(seed);
@@ -128,6 +154,13 @@ float3 SampleHemisphereCos(float3 N, inout uint seed)
     return normalize(T * L.x + B * L.y + N * L.z);
 }
 
+/**
+ * @brief 读取 16 位索引。
+ * @param ib 索引缓冲。
+ * @param index 索引位置。
+ * @return 读取的索引值。
+ * @note 阶段：HWRT 三角形数据读取阶段。
+ */
 uint LoadIndex16(ByteAddressBuffer ib, uint index)
 {
     const uint byteOffset = index * 2u;
@@ -136,6 +169,13 @@ uint LoadIndex16(ByteAddressBuffer ib, uint index)
     return ((byteOffset & 2u) != 0u) ? (word >> 16) : (word & 0xFFFFu);
 }
 
+/**
+ * @brief 按 mesh 类型读取顶点。
+ * @param meshType 网格类型。
+ * @param index 顶点索引。
+ * @return 顶点数据。
+ * @note 阶段：HWRT 三角形数据读取阶段。
+ */
 Vertex LoadVertex(uint meshType, uint index)
 {
     if (meshType == 0) return g_sphereVerts[index];
@@ -143,6 +183,15 @@ Vertex LoadVertex(uint meshType, uint index)
     return g_coneVerts[index];
 }
 
+/**
+ * @brief 根据三角形索引与重心坐标获取位置与法线。
+ * @param meshType 网格类型。
+ * @param primIndex 三角形索引。
+ * @param bary 重心坐标（b1,b2）。
+ * @param posObj 输出对象空间位置。
+ * @param nrmObj 输出对象空间法线。
+ * @note 阶段：HWRT 几何解算阶段。
+ */
 void GetTriangleData(uint meshType, uint primIndex, float2 bary, out float3 posObj, out float3 nrmObj)
 {
     uint i0 = 0, i1 = 0, i2 = 0;
@@ -177,6 +226,12 @@ void GetTriangleData(uint meshType, uint primIndex, float2 bary, out float3 posO
     nrmObj = normalize(v0.Nrm * b0 + v1.Nrm * b1 + v2.Nrm * b2);
 }
 
+/**
+ * @brief 根据实例 ID 读取对象数据。
+ * @param instanceId 实例 ID。
+ * @return 对象数据。
+ * @note 阶段：HWRT 场景读取阶段。
+ */
 ObjectData LoadObject(uint instanceId)
 {
     if (g_frameParity < 0.5)
@@ -184,6 +239,19 @@ ObjectData LoadObject(uint instanceId)
     return g_objects1[instanceId];
 }
 
+/**
+ * @brief 追踪最近命中（RayQuery）。
+ * @param origin 射线起点。
+ * @param dir 射线方向。
+ * @param tMax 最大距离。
+ * @param instanceId 输出实例 ID。
+ * @param primIndex 输出三角形索引。
+ * @param bary 输出重心坐标。
+ * @param t 输出命中距离。
+ * @param objToWorld 输出对象到世界矩阵。
+ * @return 是否命中。
+ * @note 阶段：HWRT 追踪阶段。
+ */
 bool TraceClosest(float3 origin, float3 dir, float tMax, out uint instanceId, out uint primIndex, out float2 bary, out float t, out float3x4 objToWorld)
 {
     RayDesc ray;
@@ -218,6 +286,14 @@ bool TraceClosest(float3 origin, float3 dir, float tMax, out uint instanceId, ou
     return false;
 }
 
+/**
+ * @brief 追踪任意命中（阴影射线）。
+ * @param origin 射线起点。
+ * @param dir 射线方向。
+ * @param tMax 最大距离。
+ * @return 是否命中。
+ * @note 阶段：HWRT 阴影测试阶段。
+ */
 bool TraceAnyHit(float3 origin, float3 dir, float tMax)
 {
     RayDesc ray;
@@ -236,6 +312,14 @@ bool TraceAnyHit(float3 origin, float3 dir, float tMax)
     return (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT);
 }
 
+/**
+ * @brief 命中点直接光照着色（含阴影）。
+ * @param hitPosWs 命中世界位置。
+ * @param hitNWs 命中世界法线。
+ * @param obj 对象材质数据。
+ * @return 直接光照颜色。
+ * @note 阶段：HWRT 命中着色阶段。
+ */
 float3 ShadeHitDirect(float3 hitPosWs, float3 hitNWs, ObjectData obj)
 {
     const float3 L = normalize(-g_lightDirWs);
@@ -256,6 +340,11 @@ float3 ShadeHitDirect(float3 hitPosWs, float3 hitNWs, ObjectData obj)
 }
 
 [numthreads(8, 8, 1)]
+/**
+ * @brief HWRT GI 计算着色器。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：HWRT GI 计算阶段。
+ */
 void CSHWRTGI(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h;
@@ -276,13 +365,15 @@ void CSHWRTGI(uint3 tid : SV_DispatchThreadID)
 
     const float depth = isValid ? max(length(posW - g_cameraPosWs), 1e-3) : 0.0;
 
-    // RNG seed: GI pixel + frame.
+    // RNG 种子：像素 + 帧序号。
     uint seed = Hash(tid.x + (tid.y << 16) + (uint)(g_frameIndex * 1664525.0));
 
+    // 追踪间接光。
     float3 indirect = float3(0.0, 0.0, 0.0);
     if (isValid)
     {
         const int rayCount = max(1, (int)round(g_raysPerPixel));
+        // 多条光线采样。
         [loop]
         for (int r = 0; r < rayCount; ++r)
         {
@@ -315,7 +406,7 @@ void CSHWRTGI(uint3 tid : SV_DispatchThreadID)
         indirect = albedo * indirect * ao * g_giIntensity;
     }
 
-    // Temporal reprojection
+    // 时序重投影。
     float3 accum = indirect;
     float wHist = (g_historyValid > 0.5) ? saturate(g_temporalWeight) : 0.0;
     if (isValid && wHist > 0.0)
@@ -347,6 +438,7 @@ void CSHWRTGI(uint3 tid : SV_DispatchThreadID)
         }
     }
 
+    // 写回历史与元数据。
     const bool write0 = (g_frameParity < 0.5);
     if (write0)
     {
@@ -361,6 +453,11 @@ void CSHWRTGI(uint3 tid : SV_DispatchThreadID)
 }
 
 [numthreads(8, 8, 1)]
+/**
+ * @brief 双边滤波 HWRT GI 结果。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：HWRT GI 滤波阶段。
+ */
 void CSFilter(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h;
@@ -383,6 +480,7 @@ void CSFilter(uint3 tid : SV_DispatchThreadID)
     float3 sum = float3(0.0, 0.0, 0.0);
     float wsum = 0.0;
 
+    // 5x5 邻域双边权重累积。
     [unroll]
     for (int oy = -2; oy <= 2; ++oy)
     {

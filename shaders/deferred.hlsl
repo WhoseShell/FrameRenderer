@@ -46,6 +46,12 @@ struct GBufferOut
     float4 RT2 : SV_Target2; // posW.xyz + ao.a
 };
 
+/**
+ * @brief GBuffer 像素着色器：输出材质与几何信息。
+ * @param i 插值后的像素输入。
+ * @return GBuffer 输出（RT0/RT1/RT2）。
+ * @note 阶段：延迟渲染 GBuffer 阶段。
+ */
 GBufferOut PSGBuffer(PSIn i)
 {
     float3 N = normalize(i.nrmW);
@@ -53,6 +59,7 @@ GBufferOut PSGBuffer(PSIn i)
     // Normal map (tangent basis approximated from world up)
     if (g_useNormalTex > 0.5)
     {
+        // 根据法线贴图修正法线。
         float3 nm = g_normalTex.Sample(g_samp, i.uv).xyz * 2.0 - 1.0;
         float3 up = abs(N.y) < 0.999 ? float3(0, 1, 0) : float3(1, 0, 0);
         float3 T = normalize(cross(up, N));
@@ -72,6 +79,7 @@ GBufferOut PSGBuffer(PSIn i)
     float ao = saturate(lerp(1.0, aoTex, g_useAOTex));
 
     GBufferOut o;
+    // 打包 GBuffer 输出。
     o.RT0 = float4(albedo, metallic);
     o.RT1 = float4(N, roughness + 1.0);
     o.RT2 = float4(i.posW, ao);
@@ -111,11 +119,18 @@ struct VSFullOut
     float2 uv   : TEXCOORD0;
 };
 
+/**
+ * @brief 顶点着色器：生成全屏三角形用于延迟光照。
+ * @param vid 顶点索引（SV_VertexID）。
+ * @return 顶点输出（位置/UV）。
+ * @note 阶段：延迟光照顶点阶段。
+ */
 VSFullOut VSFullscreen(uint vid : SV_VertexID)
 {
     VSFullOut o;
     float2 pos[3] = { float2(-1.0, -1.0), float2(-1.0, 3.0), float2(3.0, -1.0) };
     float2 uv[3] = { float2(0.0, 1.0), float2(0.0, -1.0), float2(2.0, 1.0) };
+    // 输出全屏三角形位置与 UV。
     o.posH = float4(pos[vid], 0.0, 1.0);
     o.uv = uv[vid];
     return o;
@@ -124,6 +139,12 @@ VSFullOut VSFullscreen(uint vid : SV_VertexID)
 #include "pbr_common.hlsl"
 #include "shadow_common.hlsl"
 
+/**
+ * @brief 延迟光照像素着色器：从 GBuffer 计算光照。
+ * @param i 插值后的顶点输出。
+ * @return 输出 HDR 颜色。
+ * @note 阶段：延迟光照像素阶段。
+ */
 float4 PSDeferredLighting(VSFullOut i) : SV_Target
 {
     float4 gb0 = g_gbuffer0.Sample(g_samp, i.uv);
@@ -148,6 +169,7 @@ float4 PSDeferredLighting(VSFullOut i) : SV_Target
     float shadow = ComputeShadowFactor(posW);
     float3 color = BRDF_UEStyle(N, V, L, albedo, metallic, roughness) * radiance * shadow;
 
+    // 叠加 IBL 环境光。
     color = ApplySimpleIBL(color, albedo, metallic, roughness, N, V, ao);
 
     color = max(color, float3(0.0, 0.0, 0.0));

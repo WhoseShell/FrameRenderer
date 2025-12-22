@@ -6,11 +6,18 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 初始化天空 IBL 计算通道（RootSig/PSO）。
+ * @param rhi 渲染硬件接口。
+ * @return 无返回值。
+ * @note 阶段：天空 IBL 初始化阶段。
+ */
 void FSimpleSceneRenderer::InitSkyIBLPass(FD3D12RHI& rhi)
 {
     ID3D12Device* device = rhi.GetDevice();
     if (!device) return;
 
+    // RootSignature：CBV + SRV + UAV。
     D3D12_ROOT_PARAMETER params[5]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[0].Descriptor.ShaderRegister = 0;
@@ -91,6 +98,7 @@ void FSimpleSceneRenderer::InitSkyIBLPass(FD3D12RHI& rhi)
     ThrowIfFailed(device->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(), IID_PPV_ARGS(&SkyIBLRootSig)),
                   "CreateRootSignature (sky ibl) failed");
 
+    // 编译 IBL 计算 Shader 并创建 PSO。
     std::wstring skyPath = std::wstring(SHADER_DIR) + L"/sky_ibl.hlsl";
     auto csGen = CompileShaderFromFile(skyPath, "CSGenerateSkyCube", "cs_5_0");
     auto csSH = CompileShaderFromFile(skyPath, "CSComputeSkySH", "cs_5_0");
@@ -106,6 +114,12 @@ void FSimpleSceneRenderer::InitSkyIBLPass(FD3D12RHI& rhi)
     ThrowIfFailed(device->CreateComputePipelineState(&pso, IID_PPV_ARGS(&SkyIBLPrefilterPSO)), "CreateComputePipelineState (sky ibl prefilter) failed");
 }
 
+/**
+ * @brief 确保天空 IBL 相关资源与描述符存在。
+ * @param rhi 渲染硬件接口。
+ * @return 无返回值。
+ * @note 阶段：天空 IBL 资源准备阶段。
+ */
 void FSimpleSceneRenderer::EnsureSkyIBLTargets(FD3D12RHI& rhi)
 {
     ID3D12Device* device = rhi.GetDevice();
@@ -117,6 +131,7 @@ void FSimpleSceneRenderer::EnsureSkyIBLTargets(FD3D12RHI& rhi)
 
     if (!SkyCube || !SkyPrefilter || !SkySH)
     {
+        // 创建天空立方体、预滤波立方体与 SH 缓冲。
         SkyCube.Reset();
         SkyPrefilter.Reset();
         SkySH.Reset();
@@ -178,6 +193,7 @@ void FSimpleSceneRenderer::EnsureSkyIBLTargets(FD3D12RHI& rhi)
 
     if (!SkyIBLHeap)
     {
+        // 创建 IBL 专用 SRV/UAV 描述符堆。
         const uint32 heapCount = 3 + mipCount;
         D3D12_DESCRIPTOR_HEAP_DESC heap{};
         heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -247,6 +263,7 @@ void FSimpleSceneRenderer::EnsureSkyIBLTargets(FD3D12RHI& rhi)
     }
 
     // Forward SRV heap: shadow map table also carries sky IBL.
+    // 前向渲染 SRV 堆：附加天空预滤波与 SH。
     if (SkyPrefilter && SRVHeap && SRVDescriptorSize > 0)
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -277,6 +294,7 @@ void FSimpleSceneRenderer::EnsureSkyIBLTargets(FD3D12RHI& rhi)
     }
 
     // Deferred SRV heap: create sky IBL entries if available.
+    // 延迟渲染 SRV 堆：添加天空 IBL 条目。
     if (GBufferSRVHeap && GBufferSRVDescriptorSize > 0 && SkyPrefilter)
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -307,6 +325,14 @@ void FSimpleSceneRenderer::EnsureSkyIBLTargets(FD3D12RHI& rhi)
     }
 }
 
+/**
+ * @brief 添加天空 IBL 生成与预滤波 Pass。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param enable 是否启用（目前忽略）。
+ * @return 无返回值。
+ * @note 阶段：天空 IBL 计算阶段。
+ */
 void FSimpleSceneRenderer::AddSkyIBLPasses(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -340,6 +366,7 @@ void FSimpleSceneRenderer::AddSkyIBLPasses(
     const uint32 cbIndexGen = 0;
     graph.AddPass("SkyIBLGen", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 生成天空立方体。
         if (SkyCubeState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -391,6 +418,7 @@ void FSimpleSceneRenderer::AddSkyIBLPasses(
     const uint32 cbIndexSH = 1;
     graph.AddPass("SkyIBLSH", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 计算球谐系数。
         if (SkySHState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -448,6 +476,7 @@ void FSimpleSceneRenderer::AddSkyIBLPasses(
 
         graph.AddPass("SkyIBLPrefilter", [=, this](ID3D12GraphicsCommandList* cl)
         {
+            // 预滤波各 mip 层。
             if (SkyPrefilterState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
             {
                 D3D12_RESOURCE_BARRIER b{};
@@ -489,6 +518,7 @@ void FSimpleSceneRenderer::AddSkyIBLPasses(
 
     graph.AddPass("SkyIBLPrefilterToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 预滤波结果切回可读状态。
         if (SkyPrefilterState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             D3D12_RESOURCE_BARRIER b{};

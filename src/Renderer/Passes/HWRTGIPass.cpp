@@ -10,12 +10,19 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 查找 dxc.exe 路径（环境变量优先）。
+ * @param 无。
+ * @return dxc.exe 路径；找不到则为空。
+ * @note 阶段：HWRT Shader 编译准备阶段。
+ */
 static std::wstring FindDxcExePath()
 {
     static std::wstring cached;
     if (!cached.empty())
         return cached;
 
+    // 优先读取环境变量 DXC_PATH。
     wchar_t envPath[1024]{};
     const DWORD envLen = GetEnvironmentVariableW(L"DXC_PATH", envPath, (DWORD)std::size(envPath));
     if (envLen > 0 && envLen < (DWORD)std::size(envPath) && GetFileAttributesW(envPath) != INVALID_FILE_ATTRIBUTES)
@@ -29,6 +36,7 @@ static std::wstring FindDxcExePath()
     const std::wstring primaryArch = is32 ? L"x86" : L"x64";
     const std::wstring fallbackArch = is32 ? L"x64" : L"x86";
 
+    // 枚举 Windows SDK 版本目录以查找 dxc.exe。
     struct FVer
     {
         uint32 a = 0, b = 0, c = 0, d = 0;
@@ -90,12 +98,21 @@ static std::wstring FindDxcExePath()
     return cached;
 }
 
+/**
+ * @brief 使用 DXC 编译 Shader（cs_6_5）。
+ * @param file shader 文件路径。
+ * @param entry 入口函数名。
+ * @param target 编译目标（如 cs_6_5）。
+ * @return 编译后的字节码。
+ * @note 阶段：HWRT Shader 编译阶段。
+ */
 static ComPtr<ID3DBlob> CompileShaderFromFileDXC(const std::wstring& file, const std::wstring& entry, const std::wstring& target)
 {
     const std::wstring dxcPath = FindDxcExePath();
     if (dxcPath.empty())
         throw std::runtime_error("DXC not found. Set DXC_PATH or install Windows SDK (dxc.exe).");
 
+    // 创建临时输出文件。
     wchar_t tempDir[MAX_PATH]{};
     if (GetTempPathW((DWORD)std::size(tempDir), tempDir) == 0)
         throw std::runtime_error("GetTempPathW failed");
@@ -170,6 +187,7 @@ static ComPtr<ID3DBlob> CompileShaderFromFileDXC(const std::wstring& file, const
         throw std::runtime_error(std::string("CreateProcessW(dxc) failed: ") + FormatWin32Error(err));
     }
 
+    // 读取编译器输出。
     char buf[4096];
     for (;;)
     {
@@ -192,6 +210,7 @@ static ComPtr<ID3DBlob> CompileShaderFromFileDXC(const std::wstring& file, const
     if (exitCode != 0)
         throw std::runtime_error("DXC shader compilation failed");
 
+    // 读取 dxc 输出的字节码文件。
     std::ifstream in(outPath, std::ios::binary | std::ios::ate);
     if (!in)
         throw std::runtime_error("Failed to open DXC output file");
@@ -210,6 +229,14 @@ static ComPtr<ID3DBlob> CompileShaderFromFileDXC(const std::wstring& file, const
     return blob;
 }
 
+/**
+ * @brief 初始化 HWRT GI 通道（RootSig/PSO）。
+ * @param rhi 渲染硬件接口。
+ * @param blend 混合状态描述。
+ * @param rast 光栅化状态描述。
+ * @return 无返回值。
+ * @note 阶段：HWRT GI 通道初始化阶段。
+ */
 void FSimpleSceneRenderer::InitHWRTGIPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& blend, const D3D12_RASTERIZER_DESC& rast)
 {
     if (!bRaytracingSupported)
@@ -221,6 +248,7 @@ void FSimpleSceneRenderer::InitHWRTGIPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC
     try
     {
         // Compute: HWRT GI + temporal (writes history/meta), and bilateral filter (writes filtered).
+        // 计算通道：GI + 时序与滤波。
         {
         D3D12_ROOT_PARAMETER paramsHW[3]{};
         paramsHW[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -298,6 +326,7 @@ void FSimpleSceneRenderer::InitHWRTGIPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC
         }
 
         // Additive composite (filtered GI -> HDR)
+        // 合成通道：将 GI 叠加到 HDR。
         {
             D3D12_ROOT_PARAMETER paramsAdd[2]{};
             paramsAdd[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -383,6 +412,7 @@ void FSimpleSceneRenderer::InitHWRTGIPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC
     }
     catch (const std::exception& e)
     {
+        // 初始化失败：记录错误并清理资源。
         std::string msg = std::string("HWRT GI init failed: ") + e.what();
         DebugOutput(std::wstring(msg.begin(), msg.end()));
 
@@ -397,6 +427,22 @@ void FSimpleSceneRenderer::InitHWRTGIPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC
     }
 }
 
+/**
+ * @brief 更新 HWRT GI 常量缓冲并准备 TLAS/对象 SRV。
+ * @param rhi 渲染硬件接口。
+ * @param bUseHWRTGI 是否启用 HWRT GI。
+ * @param curViewProj 当前视图投影矩阵。
+ * @param cameraPosWs 相机世界位置。
+ * @param lightDirWs 光源方向。
+ * @param sunIntensity 太阳强度。
+ * @param timeSeconds 当前时间（秒）。
+ * @param frameIndex 帧索引。
+ * @param objects 场景对象列表。
+ * @param previewPos 预览位置（可空）。
+ * @param previewType 预览对象类型。
+ * @return 实例数量。
+ * @note 阶段：HWRT GI 参数更新阶段。
+ */
 uint32 FSimpleSceneRenderer::UpdateHWRTGICBAndScene(
     FD3D12RHI& rhi,
     bool bUseHWRTGI,
@@ -420,6 +466,7 @@ uint32 FSimpleSceneRenderer::UpdateHWRTGICBAndScene(
     const bool bHasPreview = (previewPos && drawCount < MaxObjects);
     const uint32 instanceCount = drawCount + (bHasPreview ? 1u : 0u);
 
+    // 填充 GI 常量缓冲。
     FHWRTGICB hcb{};
     hcb.ViewProj = curViewProj;
     hcb.PrevViewProj = (bHWRTGIHistoryValid ? PrevViewProj : curViewProj);
@@ -445,6 +492,7 @@ uint32 FSimpleSceneRenderer::UpdateHWRTGICBAndScene(
     const uint32 rtInstanceCount = PrepareRaytracingScene(rhi, frameIndex, objects, previewPos, previewType);
 
     // Update per-frame TLAS + object buffer SRVs in the deferred SRV heap.
+    // 更新 TLAS 与对象 SRV 到延迟堆。
     ID3D12Device* device = rhi.GetDevice();
     if (device && rtInstanceCount > 0 && GBufferSRVDescriptorSize > 0)
     {
@@ -483,6 +531,14 @@ uint32 FSimpleSceneRenderer::UpdateHWRTGICBAndScene(
     return rtInstanceCount;
 }
 
+/**
+ * @brief 添加 TLAS 构建 Pass。
+ * @param graph 渲染图构建器。
+ * @param frameIndex 帧索引。
+ * @param instanceCount 实例数量。
+ * @return 无返回值。
+ * @note 阶段：HWRT GI 构建阶段。
+ */
 void FSimpleSceneRenderer::AddBuildTLASPass(FRenderGraphBuilder& graph, uint32 frameIndex, uint32 instanceCount)
 {
     graph.AddPass("BuildTLAS", [=, this](ID3D12GraphicsCommandList* cl)
@@ -491,6 +547,17 @@ void FSimpleSceneRenderer::AddBuildTLASPass(FRenderGraphBuilder& graph, uint32 f
     });
 }
 
+/**
+ * @brief 添加 HWRT GI 的一系列 Pass（GI/Filter/Add）。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param vp 视口。
+ * @param sc 裁剪区域。
+ * @param hdrRtv HDR 目标 RTV。
+ * @param instanceCount 实例数量。
+ * @return 无返回值。
+ * @note 阶段：HWRT GI 渲染阶段。
+ */
 void FSimpleSceneRenderer::AddHWRTGIPasses(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -523,6 +590,7 @@ void FSimpleSceneRenderer::AddHWRTGIPasses(
     {
         if (!giHistWrite || !giMetaWrite) return;
 
+        // GI 写入历史与元数据。
         if (HWRTGIHistoryStates[writeIdx] != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -570,6 +638,7 @@ void FSimpleSceneRenderer::AddHWRTGIPasses(
 
     graph.AddPass("HWRTGIToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 历史与元数据切回 SRV。
         if (!giHistWrite || !giMetaWrite) return;
         if (HWRTGIHistoryStates[writeIdx] == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
@@ -598,6 +667,7 @@ void FSimpleSceneRenderer::AddHWRTGIPasses(
     graph.AddPass("HWRTGIFilter", [=, this](ID3D12GraphicsCommandList* cl)
     {
         if (!giFiltered) return;
+        // 双边滤波。
         if (HWRTGIFilteredState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -632,6 +702,7 @@ void FSimpleSceneRenderer::AddHWRTGIPasses(
 
     graph.AddPass("HWRTGIFilterToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 滤波结果切回 SRV。
         if (!giFiltered) return;
         if (HWRTGIFilteredState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
@@ -648,6 +719,7 @@ void FSimpleSceneRenderer::AddHWRTGIPasses(
 
     graph.AddPass("HWRTGIAdd", [=](ID3D12GraphicsCommandList* cl)
     {
+        // 将 GI 叠加到 HDR。
         cl->RSSetViewports(1, &vp);
         cl->RSSetScissorRects(1, &sc);
         cl->OMSetRenderTargets(1, &hdrRtv, FALSE, nullptr);

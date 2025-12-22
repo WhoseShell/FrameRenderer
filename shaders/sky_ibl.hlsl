@@ -14,6 +14,13 @@ SamplerState g_samp : register(s0);
 RWTexture2DArray<float4> g_outTex : register(u0);
 RWStructuredBuffer<float4> g_outSH : register(u1);
 
+/**
+ * @brief 将立方体贴图面 + UV 转换为方向向量。
+ * @param face 立方体面索引（0..5）。
+ * @param uv 面内坐标（-1..1）。
+ * @return 归一化方向向量。
+ * @note 阶段：IBL 采样方向计算阶段。
+ */
 float3 CubeUVToDir(uint face, float2 uv)
 {
     if (face == 0) return normalize(float3(1.0, -uv.y, -uv.x));
@@ -24,6 +31,12 @@ float3 CubeUVToDir(uint face, float2 uv)
     return normalize(float3(-uv.x, -uv.y, -1.0));
 }
 
+/**
+ * @brief Van der Corput 反向基 2 序列。
+ * @param bits 输入整数。
+ * @return [0,1) 区间的序列值。
+ * @note 阶段：重要性采样序列生成阶段。
+ */
 float RadicalInverse_VdC(uint bits)
 {
     bits = (bits << 16) | (bits >> 16);
@@ -34,11 +47,26 @@ float RadicalInverse_VdC(uint bits)
     return float(bits) * 2.3283064365386963e-10;
 }
 
+/**
+ * @brief Hammersley 采样序列。
+ * @param i 当前样本索引。
+ * @param n 总样本数。
+ * @return 2D 采样坐标。
+ * @note 阶段：重要性采样阶段。
+ */
 float2 Hammersley(uint i, uint n)
 {
     return float2(float(i) / float(n), RadicalInverse_VdC(i));
 }
 
+/**
+ * @brief GGX 重要性采样方向。
+ * @param xi 2D 采样点。
+ * @param roughness 粗糙度。
+ * @param N 法线方向。
+ * @return 采样方向向量。
+ * @note 阶段：IBL 预滤波采样阶段。
+ */
 float3 ImportanceSampleGGX(float2 xi, float roughness, float3 N)
 {
     float a = max(roughness * roughness, 1e-4);
@@ -54,6 +82,12 @@ float3 ImportanceSampleGGX(float2 xi, float roughness, float3 N)
     return sample;
 }
 
+/**
+ * @brief 计算二阶球谐基函数。
+ * @param dir 单位方向向量。
+ * @param sh 输出 9 个 SH 基系数。
+ * @note 阶段：天空 IBL 球谐投影阶段。
+ */
 void SHBasis(float3 dir, out float sh[9])
 {
     const float x = dir.x;
@@ -72,6 +106,11 @@ void SHBasis(float3 dir, out float sh[9])
 }
 
 [numthreads(8, 8, 1)]
+/**
+ * @brief 生成天空立方体贴图（计算着色器）。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：天空 IBL 立方体生成阶段。
+ */
 void CSGenerateSkyCube(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h, layers;
@@ -79,6 +118,7 @@ void CSGenerateSkyCube(uint3 tid : SV_DispatchThreadID)
     if (tid.x >= w || tid.y >= h || tid.z >= 6)
         return;
 
+    // 计算每个像素对应的方向。
     float2 uv = ((float2(tid.xy) + 0.5) / float2(w, h)) * 2.0 - 1.0;
     float3 dir = CubeUVToDir(tid.z, uv);
 
@@ -89,10 +129,16 @@ void CSGenerateSkyCube(uint3 tid : SV_DispatchThreadID)
     float sunDisk = smoothstep(cos(0.6 * (PI / 180.0)), cos(0.2 * (PI / 180.0)), sunCos);
     sky += g_sunColor * g_sunIntensity * sunDisk * 0.02;
 
+    // 写入天空立方体贴图。
     g_outTex[uint3(tid.xy, tid.z)] = float4(max(sky, float3(0.0, 0.0, 0.0)), 1.0);
 }
 
 [numthreads(1, 1, 1)]
+/**
+ * @brief 计算天空立方体的球谐系数（计算着色器）。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：天空 IBL 球谐投影阶段。
+ */
 void CSComputeSkySH(uint3 tid : SV_DispatchThreadID)
 {
     if (any(tid.xyz != 0))
@@ -104,6 +150,7 @@ void CSComputeSkySH(uint3 tid : SV_DispatchThreadID)
     float3 coeff[9];
     [unroll] for (int i = 0; i < 9; ++i) coeff[i] = float3(0.0, 0.0, 0.0);
 
+    // 对立方体每个面积分。
     const float invW = 1.0 / max(1.0, (float)w);
     const float invH = 1.0 / max(1.0, (float)h);
     const float factor = 4.0 / (float(w) * float(h));
@@ -150,6 +197,11 @@ void CSComputeSkySH(uint3 tid : SV_DispatchThreadID)
 }
 
 [numthreads(8, 8, 1)]
+/**
+ * @brief 预滤波天空立方体贴图（粗糙度卷积）。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：IBL 预滤波阶段。
+ */
 void CSPrefilterSky(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h, layers;
@@ -168,6 +220,7 @@ void CSPrefilterSky(uint3 tid : SV_DispatchThreadID)
     float3 prefiltered = float3(0.0, 0.0, 0.0);
     float totalWeight = 0.0;
 
+    // 重要性采样积分。
     [loop]
     for (uint i = 0; i < sampleCount; ++i)
     {

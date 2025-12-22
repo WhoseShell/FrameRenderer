@@ -47,7 +47,7 @@ target_link_libraries(dx12_hello PRIVATE
 
 # Better warnings; keep it simple for learning
 if (MSVC)
-    target_compile_options(dx12_hello PRIVATE /W4 /permissive-)
+    target_compile_options(dx12_hello PRIVATE /W4 /permissive- /utf-8)
 else()
     target_compile_options(dx12_hello PRIVATE -Wall -Wextra -Wpedantic)
 endif()

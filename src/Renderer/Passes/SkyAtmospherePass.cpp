@@ -6,11 +6,20 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 初始化天空大气渲染通道（RootSig/PSO）。
+ * @param rhi 渲染硬件接口。
+ * @param blend 混合状态描述。
+ * @param rast 光栅化状态描述。
+ * @return 无返回值。
+ * @note 阶段：天空通道初始化阶段。
+ */
 void FSimpleSceneRenderer::InitSkyPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& blend, const D3D12_RASTERIZER_DESC& rast)
 {
     ID3D12Device* device = rhi.GetDevice();
     if (!device) return;
 
+    // RootSignature：仅包含天空常量缓冲。
     D3D12_ROOT_PARAMETER paramsSky[1]{};
     paramsSky[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     paramsSky[0].Descriptor.ShaderRegister = 0;
@@ -33,6 +42,7 @@ void FSimpleSceneRenderer::InitSkyPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& b
     ThrowIfFailed(device->CreateRootSignature(0, sigSky->GetBufferPointer(), sigSky->GetBufferSize(), IID_PPV_ARGS(&SkyRootSig)),
                   "CreateRootSignature (sky) failed");
 
+    // 编译天空 Shader 并创建 PSO。
     std::wstring skyPath = std::wstring(SHADER_DIR) + L"/sky_atmosphere.hlsl";
     auto vsSky = CompileShaderFromFile(skyPath, "VSMain", "vs_5_0");
     auto psSky = CompileShaderFromFile(skyPath, "PSMain", "ps_5_0");
@@ -53,6 +63,17 @@ void FSimpleSceneRenderer::InitSkyPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& b
     ThrowIfFailed(device->CreateGraphicsPipelineState(&psoSky, IID_PPV_ARGS(&SkyPSO)), "CreateGraphicsPipelineState (sky) failed");
 }
 
+/**
+ * @brief 更新天空常量缓冲参数。
+ * @param invViewProj 视图投影逆矩阵。
+ * @param cameraPosWs 相机世界位置。
+ * @param lightDirWs 太阳方向。
+ * @param sunIntensity 太阳强度。
+ * @param sky 天空参数。
+ * @param frameIndex 帧索引。
+ * @return 无返回值。
+ * @note 阶段：天空参数更新阶段。
+ */
 void FSimpleSceneRenderer::UpdateSkyCB(
     const DirectX::XMMATRIX& invViewProj,
     const DirectX::XMFLOAT3& cameraPosWs,
@@ -64,6 +85,7 @@ void FSimpleSceneRenderer::UpdateSkyCB(
     if (!CBMappedSky[frameIndex])
         return;
 
+    // 填充天空常量缓冲。
     FSkyCB skycb{};
     DirectX::XMStoreFloat4x4(&skycb.InvViewProj, invViewProj);
     skycb.CameraPosWs = cameraPosWs;
@@ -78,6 +100,17 @@ void FSimpleSceneRenderer::UpdateSkyCB(
     std::memcpy(CBMappedSky[frameIndex], &skycb, sizeof(skycb));
 }
 
+/**
+ * @brief 添加天空渲染 Pass（全屏三角形）。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param vp 视口。
+ * @param sc 裁剪区域。
+ * @param hdrRtv HDR 目标 RTV。
+ * @param enable 是否启用天空渲染。
+ * @return 无返回值。
+ * @note 阶段：天空渲染阶段。
+ */
 void FSimpleSceneRenderer::AddSkyPass(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -92,6 +125,7 @@ void FSimpleSceneRenderer::AddSkyPass(
 
     graph.AddPass("DrawSky", [=](ID3D12GraphicsCommandList* cl)
     {
+        // 禁用时跳过。
         if (!enable) return;
         cl->RSSetViewports(1, &vp);
         cl->RSSetScissorRects(1, &sc);

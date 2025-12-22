@@ -5,11 +5,20 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 初始化 Tonemap 通道（RootSig/PSO）。
+ * @param rhi 渲染硬件接口。
+ * @param blend 混合状态描述。
+ * @param rast 光栅化状态描述。
+ * @return 无返回值。
+ * @note 阶段：后处理通道初始化阶段。
+ */
 void FSimpleSceneRenderer::InitTonemapPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& blend, const D3D12_RASTERIZER_DESC& rast)
 {
     ID3D12Device* device = rhi.GetDevice();
     if (!device) return;
 
+    // RootSignature：CBV + HDR SRV。
     D3D12_ROOT_PARAMETER paramsTM[2]{};
     paramsTM[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     paramsTM[0].Descriptor.ShaderRegister = 0;
@@ -61,6 +70,7 @@ void FSimpleSceneRenderer::InitTonemapPass(FD3D12RHI& rhi, const D3D12_BLEND_DES
     ThrowIfFailed(device->CreateRootSignature(0, sigTM->GetBufferPointer(), sigTM->GetBufferSize(), IID_PPV_ARGS(&TonemapRootSig)),
                   "CreateRootSignature (tonemap) failed");
 
+    // 编译 Tonemap Shader 并创建 PSO。
     std::wstring tonemapPath = std::wstring(SHADER_DIR) + L"/tonemap.hlsl";
     auto vsTM = CompileShaderFromFile(tonemapPath, "VSMain", "vs_5_0");
     auto psTM = CompileShaderFromFile(tonemapPath, "PSMain", "ps_5_0");
@@ -82,11 +92,19 @@ void FSimpleSceneRenderer::InitTonemapPass(FD3D12RHI& rhi, const D3D12_BLEND_DES
     ThrowIfFailed(device->CreateGraphicsPipelineState(&psoTM, IID_PPV_ARGS(&TonemapPSO)), "CreateGraphicsPipelineState (tonemap) failed");
 }
 
+/**
+ * @brief 更新 Tonemap 常量缓冲。
+ * @param enableTonemap 是否启用 Tonemap。
+ * @param frameIndex 帧索引。
+ * @return 无返回值。
+ * @note 阶段：后处理参数更新阶段。
+ */
 void FSimpleSceneRenderer::UpdateTonemapCB(bool enableTonemap, uint32 frameIndex)
 {
     if (!CBMappedTonemap[frameIndex])
         return;
 
+    // 填充 Tonemap 参数。
     FTonemapCB tcb{};
     tcb.EnableTonemap = enableTonemap ? 1.0f : 0.0f;
     tcb.Exposure = 0.6f;
@@ -94,6 +112,12 @@ void FSimpleSceneRenderer::UpdateTonemapCB(bool enableTonemap, uint32 frameIndex
     std::memcpy(CBMappedTonemap[frameIndex], &tcb, sizeof(tcb));
 }
 
+/**
+ * @brief 将 HDR 目标转换为 SRV 可读状态。
+ * @param graph 渲染图构建器。
+ * @return 无返回值。
+ * @note 阶段：后处理前的资源状态转换阶段。
+ */
 void FSimpleSceneRenderer::AddHDRToSRVPass(FRenderGraphBuilder& graph)
 {
     auto hdr = HDRColor.Get();
@@ -113,6 +137,15 @@ void FSimpleSceneRenderer::AddHDRToSRVPass(FRenderGraphBuilder& graph)
     });
 }
 
+/**
+ * @brief 添加 Tonemap Pass（HDR -> BackBuffer）。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param vp 视口。
+ * @param sc 裁剪区域。
+ * @return 无返回值。
+ * @note 阶段：后处理 Tonemap 阶段。
+ */
 void FSimpleSceneRenderer::AddTonemapPass(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -127,6 +160,7 @@ void FSimpleSceneRenderer::AddTonemapPass(
 
     graph.AddPass("Tonemap", [=](ID3D12GraphicsCommandList* cl)
     {
+        // 全屏三角形输出到后备缓冲。
         cl->RSSetViewports(1, &vp);
         cl->RSSetScissorRects(1, &sc);
         cl->OMSetRenderTargets(1, &frame.RTV, FALSE, nullptr);

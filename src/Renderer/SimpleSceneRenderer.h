@@ -41,18 +41,102 @@ public:
         Deferred = 1,
     };
 
+    /**
+     * @brief 初始化渲染器资源与渲染通道。
+     * @param rhi 渲染硬件接口对象。
+     * @return 无返回值。
+     * @note 阶段：渲染初始化阶段。
+     */
     void Init(FD3D12RHI& rhi);
+    /**
+     * @brief 释放渲染器资源。
+     * @param 无。
+     * @return 无返回值。
+     * @note 阶段：渲染销毁阶段。
+     */
     void Shutdown();
+    /**
+     * @brief 查询是否支持硬件光线追踪。
+     * @param 无。
+     * @return true 表示支持 DXR。
+     * @note 阶段：初始化后能力查询阶段。
+     */
     bool IsRaytracingSupported() const { return bRaytracingSupported; }
+    /**
+     * @brief 查询 HWRT GI 是否初始化完成。
+     * @param 无。
+     * @return true 表示可用。
+     * @note 阶段：初始化后功能状态查询。
+     */
     bool IsHWRTGIReady() const { return bHWRTGIReady; }
+    /**
+     * @brief 获取 HWRT GI 初始化失败的错误信息。
+     * @param 无。
+     * @return 错误字符串（为空表示无错误）。
+     * @note 阶段：初始化诊断阶段。
+     */
     const std::wstring& GetHWRTGIInitError() const { return HWRTGIInitError; }
+    /**
+     * @brief 获取光线追踪 Tier。
+     * @param 无。
+     * @return D3D12_RAYTRACING_TIER 枚举值。
+     * @note 阶段：初始化后能力查询阶段。
+     */
     D3D12_RAYTRACING_TIER GetRaytracingTier() const { return RaytracingTier; }
 
     // Returns renderer texture slot (0 = built-in white).
+    /**
+     * @brief 创建 RGBA8 纹理并上传到 GPU。
+     * @param rhi 渲染硬件接口对象。
+     * @param width 纹理宽度（像素）。
+     * @param height 纹理高度（像素）。
+     * @param rgba RGBA8 像素数据指针。
+     * @return 纹理槽位（0 表示失败或白色默认纹理）。
+     * @note 阶段：资源导入/上传阶段。
+     */
     int CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint32 height, const uint8* rgba);
+    /**
+     * @brief 分配一个材质 SRV 描述符块（5 个连续槽位）。
+     * @param 无。
+     * @return SRV 基础槽位索引。
+     * @note 阶段：材质资源管理阶段。
+     */
     int AllocateMaterialSRVBlock();
+    /**
+     * @brief 更新材质 SRV 描述符块的纹理槽位。
+     * @param base SRV 块起始槽位。
+     * @param albedoSlot Albedo 纹理槽位。
+     * @param normalSlot Normal 纹理槽位。
+     * @param roughnessSlot Roughness 纹理槽位。
+     * @param metallicSlot Metallic 纹理槽位。
+     * @param aoSlot AO 纹理槽位。
+     * @return 无返回值。
+     * @note 阶段：材质更新阶段。
+     */
     void UpdateMaterialSRVBlock(int base, int albedoSlot, int normalSlot, int roughnessSlot, int metallicSlot, int aoSlot);
 
+    /**
+     * @brief 执行一帧渲染（支持前向/延迟与 GI 选项）。
+     * @param rhi 渲染硬件接口对象。
+     * @param camera 相机参数。
+     * @param timeSeconds 当前时间（秒）。
+     * @param renderPath 渲染路径选择。
+     * @param bEnableLumen 是否启用 Lumen。
+     * @param bEnableLumenSWRT 是否启用 SWRT GI。
+     * @param bEnableLumenHWRT 是否启用 HWRT GI。
+     * @param objects 场景对象列表。
+     * @param selectedIndex 选中对象索引。
+     * @param bScaleGizmo 是否为缩放 Gizmo。
+     * @param lightDirWs 主光源方向（世界空间）。
+     * @param bEnableTonemap 是否启用 Tonemap。
+     * @param sunIntensity 太阳光强。
+     * @param sky 天空参数。
+     * @param leftInsetPx 左侧 UI 预留像素。
+     * @param previewPos 预览放置位置（可空）。
+     * @param previewType 预览对象类型。
+     * @return 无返回值。
+     * @note 阶段：渲染帧执行阶段。
+     */
     void Render(
         FD3D12RHI& rhi,
         const FCamera& camera,

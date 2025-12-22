@@ -7,6 +7,14 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 初始化 Lumen SWRT 通道（计算/合成 PSO）。
+ * @param rhi 渲染硬件接口。
+ * @param blend 混合状态描述。
+ * @param rast 光栅化状态描述。
+ * @return 无返回值。
+ * @note 阶段：SWRT GI 通道初始化阶段。
+ */
 void FSimpleSceneRenderer::InitLumenSwrtPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& blend, const D3D12_RASTERIZER_DESC& rast)
 {
     ID3D12Device* device = rhi.GetDevice();
@@ -14,6 +22,7 @@ void FSimpleSceneRenderer::InitLumenSwrtPass(FD3D12RHI& rhi, const D3D12_BLEND_D
         return;
 
     // Compute root signature: b0 + SRV table (t0..tN) + UAV table (u0..u6)
+    // 计算通道 RootSignature：CBV + SRV + UAV。
     {
         D3D12_ROOT_PARAMETER params[3]{};
         params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -80,6 +89,7 @@ void FSimpleSceneRenderer::InitLumenSwrtPass(FD3D12RHI& rhi, const D3D12_BLEND_D
     }
 
     // Compute PSOs: surface cache, GI, filter.
+    // 计算 PSO：表面缓存、GI、滤波。
     {
         std::wstring swrtPath = std::wstring(SHADER_DIR) + L"/lumen_swrt.hlsl";
         auto csSurface = CompileShaderFromFile(swrtPath, "CSSWRTSurfaceCache", "cs_5_0");
@@ -99,6 +109,7 @@ void FSimpleSceneRenderer::InitLumenSwrtPass(FD3D12RHI& rhi, const D3D12_BLEND_D
     }
 
     // Additive composite (filtered GI -> HDR)
+    // 合成 PSO：将滤波后的 GI 叠加到 HDR。
     {
         D3D12_ROOT_PARAMETER paramsAdd[2]{};
         paramsAdd[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -181,6 +192,22 @@ void FSimpleSceneRenderer::InitLumenSwrtPass(FD3D12RHI& rhi, const D3D12_BLEND_D
     }
 }
 
+/**
+ * @brief 更新 SWRT GI 常量缓冲并准备对象数据。
+ * @param rhi 渲染硬件接口。
+ * @param bUseSWRT 是否启用 SWRT。
+ * @param curViewProj 当前视图投影矩阵。
+ * @param cameraPosWs 相机世界位置。
+ * @param lightDirWs 光源方向。
+ * @param sunIntensity 太阳强度。
+ * @param timeSeconds 当前时间（秒）。
+ * @param frameIndex 帧索引。
+ * @param objects 场景对象列表。
+ * @param previewPos 预览位置（可空）。
+ * @param previewType 预览对象类型。
+ * @return 对象实例数量。
+ * @note 阶段：SWRT GI 参数更新阶段。
+ */
 uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
     FD3D12RHI& rhi,
     bool bUseSWRT,
@@ -209,6 +236,7 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
     if (instanceCount == 0)
         return 0;
 
+    // 填充 GI 常量缓冲。
     FHWRTGICB hcb{};
     hcb.ViewProj = curViewProj;
     hcb.PrevViewProj = (bSWRTGIHistoryValid ? PrevViewProj : curViewProj);
@@ -232,6 +260,7 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
     std::memcpy(CBMappedHWRTGI[frameIndex], &hcb, sizeof(hcb));
 
     // Ensure per-frame object data buffer (upload, persistently mapped).
+    // 确保对象数据缓冲存在。
     {
         const uint32 capacity = MaxObjects + 1;
         const UINT64 bytes = UINT64(sizeof(FRTObjectData)) * UINT64(capacity);
@@ -279,6 +308,7 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
 
     auto writeObject = [&](uint32 instanceIndex, const FSceneObject& obj)
     {
+        // 写入对象数据用于 SWRT 追踪。
         const uint32 meshType = meshTypeToIndex(obj.Type);
 
         FRTObjectData o{};
@@ -298,6 +328,7 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
 
     if (bHasPreview)
     {
+        // 追加预览对象。
         FSceneObject preview{};
         preview.Type = previewType;
         preview.Position = *previewPos;
@@ -310,6 +341,7 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
     RTObjectInstanceCount[frameIndex] = instanceCount;
 
     // Update per-frame object buffer SRV in the deferred SRV heap.
+    // 更新对象数据 SRV 到延迟堆。
     if (device && RTObjectBuffer[frameIndex] && GBufferSRVDescriptorSize > 0)
     {
         const uint32 objIndex = (frameIndex & 1) ? kDesc_RTObjects1 : kDesc_RTObjects0;
@@ -331,6 +363,17 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
     return instanceCount;
 }
 
+/**
+ * @brief 添加 SWRT GI 的一系列 Pass（Surface/GI/Filter/Add）。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param vp 视口。
+ * @param sc 裁剪区域。
+ * @param hdrRtv HDR 目标 RTV。
+ * @param objectCount 对象数量。
+ * @return 无返回值。
+ * @note 阶段：SWRT GI 渲染阶段。
+ */
 void FSimpleSceneRenderer::AddLumenSwrtPasses(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -368,6 +411,7 @@ void FSimpleSceneRenderer::AddLumenSwrtPasses(
     {
         if (!surf0 || !surf1) return;
 
+        // Surface 缓存写入（UAV）。
         ID3D12Resource* surfRes[2] = { surf0, surf1 };
         for (int i = 0; i < 2; ++i)
         {
@@ -408,6 +452,7 @@ void FSimpleSceneRenderer::AddLumenSwrtPasses(
 
     graph.AddPass("LumenSWRTSurfaceToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // Surface 缓存切回 SRV。
         if (!surf0 || !surf1) return;
         ID3D12Resource* surfRes[2] = { surf0, surf1 };
         for (int i = 0; i < 2; ++i)
@@ -430,6 +475,7 @@ void FSimpleSceneRenderer::AddLumenSwrtPasses(
     {
         if (!giHistWrite || !giMetaWrite) return;
 
+        // GI 计算写入历史与元数据。
         if (HWRTGIHistoryStates[writeIdx] != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -477,6 +523,7 @@ void FSimpleSceneRenderer::AddLumenSwrtPasses(
 
     graph.AddPass("LumenSWRTGIToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // GI 历史与元数据切回 SRV。
         if (!giHistWrite || !giMetaWrite) return;
         if (HWRTGIHistoryStates[writeIdx] == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
@@ -505,6 +552,7 @@ void FSimpleSceneRenderer::AddLumenSwrtPasses(
     graph.AddPass("LumenSWRTFilter", [=, this](ID3D12GraphicsCommandList* cl)
     {
         if (!giFiltered) return;
+        // 对 GI 结果做滤波。
         if (HWRTGIFilteredState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -539,6 +587,7 @@ void FSimpleSceneRenderer::AddLumenSwrtPasses(
 
     graph.AddPass("LumenSWRTFilterToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 过滤结果切回 SRV。
         if (!giFiltered) return;
         if (HWRTGIFilteredState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
@@ -555,6 +604,7 @@ void FSimpleSceneRenderer::AddLumenSwrtPasses(
 
     graph.AddPass("LumenSWRTAdd", [=](ID3D12GraphicsCommandList* cl)
     {
+        // 将 GI 结果叠加到 HDR。
         cl->RSSetViewports(1, &vp);
         cl->RSSetScissorRects(1, &sc);
         cl->OMSetRenderTargets(1, &hdrRtv, FALSE, nullptr);

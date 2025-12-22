@@ -42,11 +42,18 @@ struct VSFullOut
     float2 uv   : TEXCOORD0;
 };
 
+/**
+ * @brief 顶点着色器：生成全屏三角形。
+ * @param vid 顶点索引（SV_VertexID）。
+ * @return 顶点输出（位置/UV）。
+ * @note 阶段：Lumen 顶点阶段。
+ */
 VSFullOut VSFullscreen(uint vid : SV_VertexID)
 {
     VSFullOut o;
     float2 pos[3] = { float2(-1.0, -1.0), float2(-1.0, 3.0), float2(3.0, -1.0) };
     float2 uv[3] = { float2(0.0, 1.0), float2(0.0, -1.0), float2(2.0, 1.0) };
+    // 输出全屏三角形位置与 UV。
     o.posH = float4(pos[vid], 0.0, 1.0);
     o.uv = uv[vid];
     return o;
@@ -54,6 +61,12 @@ VSFullOut VSFullscreen(uint vid : SV_VertexID)
 
 #include "pbr_common.hlsl"
 
+/**
+ * @brief 哈希函数，用于随机种子扰动。
+ * @param x 输入值。
+ * @return 哈希后的值。
+ * @note 阶段：随机序列生成阶段。
+ */
 uint Hash(uint x)
 {
     x ^= x >> 16;
@@ -64,12 +77,25 @@ uint Hash(uint x)
     return x;
 }
 
+/**
+ * @brief 生成 [0,1) 的随机数。
+ * @param seed 输入/输出随机种子。
+ * @return 随机浮点数。
+ * @note 阶段：随机采样阶段。
+ */
 float Rand01(inout uint seed)
 {
     seed = Hash(seed);
     return (seed & 0x00FFFFFFu) / 16777216.0;
 }
 
+/**
+ * @brief 构建法线空间正交基。
+ * @param N 法线方向。
+ * @param T 输出切线方向。
+ * @param B 输出副切线方向。
+ * @note 阶段：采样方向生成阶段。
+ */
 void MakeBasis(float3 N, out float3 T, out float3 B)
 {
     float3 up = (abs(N.y) < 0.999) ? float3(0, 1, 0) : float3(1, 0, 0);
@@ -77,6 +103,13 @@ void MakeBasis(float3 N, out float3 T, out float3 B)
     B = normalize(cross(N, T));
 }
 
+/**
+ * @brief 余弦加权半球采样方向。
+ * @param N 法线方向。
+ * @param seed 输入/输出随机种子。
+ * @return 采样方向。
+ * @note 阶段：GI 采样阶段。
+ */
 float3 SampleHemisphereCos(float3 N, inout uint seed)
 {
     float r1 = Rand01(seed);
@@ -93,6 +126,13 @@ float3 SampleHemisphereCos(float3 N, inout uint seed)
 }
 
 
+/**
+ * @brief 将世界坐标投影到屏幕 UV。
+ * @param posW 世界坐标位置。
+ * @param uv 输出 UV。
+ * @return 是否成功投影。
+ * @note 阶段：屏幕空间追踪阶段。
+ */
 bool ProjectToUV(float3 posW, out float2 uv)
 {
     float4 clip = mul(float4(posW, 1.0), g_viewProj);
@@ -103,6 +143,14 @@ bool ProjectToUV(float3 posW, out float2 uv)
     return true;
 }
 
+/**
+ * @brief 屏幕空间射线追踪（步进采样）。
+ * @param origin 起点（世界空间）。
+ * @param dir 方向（归一化）。
+ * @param hitUv 输出命中 UV。
+ * @return 是否命中。
+ * @note 阶段：Lumen 屏幕空间追踪阶段。
+ */
 bool TraceScreen(float3 origin, float3 dir, out float2 hitUv)
 {
     float t = max(g_stepSize, 1e-3);
@@ -122,6 +170,7 @@ bool TraceScreen(float3 origin, float3 dir, out float2 hitUv)
         if (any(uv < 0.0) || any(uv > 1.0))
             return false;
 
+        // 通过 GBuffer 深度/位置判断是否命中。
         float4 gb1 = g_gbuffer1.SampleLevel(g_samp, uv, 0);
         if (gb1.a > 0.0)
         {
@@ -139,6 +188,13 @@ bool TraceScreen(float3 origin, float3 dir, out float2 hitUv)
     return false;
 }
 
+/**
+ * @brief 对屏幕空间命中点做一次局部光照估计。
+ * @param uv 命中点 UV。
+ * @param toViewerDir 指向观察者方向。
+ * @return 命中点辐射度。
+ * @note 阶段：Lumen 命中着色阶段。
+ */
 float3 ShadeHit(float2 uv, float3 toViewerDir)
 {
     float4 hb0 = g_gbuffer0.SampleLevel(g_samp, uv, 0);
@@ -161,10 +217,17 @@ float3 ShadeHit(float2 uv, float3 toViewerDir)
 
     float3 color = BRDF_UEStyle(N, V, L, albedo, metallic, roughness) * radiance;
 
-    // small ambient term (keeps GI stable when the sun is weak)
+    // 小环境光项，避免日照弱时过暗。
     return ApplySimpleIBL(color, albedo, metallic, roughness, N, V, ao);
 }
 
+/**
+ * @brief 从历史缓冲采样上一帧结果。
+ * @param uv 采样 UV。
+ * @param prevIndex 历史索引（0 或 1）。
+ * @return 历史颜色。
+ * @note 阶段：时序累积阶段。
+ */
 float4 SampleHistory(float2 uv, float prevIndex)
 {
     if (prevIndex < 0.5)
@@ -178,6 +241,12 @@ struct PSLumenOut
     float4 History  : SV_Target1;
 };
 
+/**
+ * @brief Lumen 像素着色器：GI + 反射 + 时序累积。
+ * @param i 插值后的顶点输出。
+ * @return HDR 叠加结果与历史输出。
+ * @note 阶段：Lumen 像素阶段。
+ */
 PSLumenOut PSLumen(VSFullOut i)
 {
     PSLumenOut o;
@@ -201,11 +270,11 @@ PSLumenOut PSLumen(VSFullOut i)
 
     float3 V = normalize(g_cameraPosWs - posW);
 
-    // RNG seed: pixel + frame
+    // RNG 种子：像素 + 帧序号。
     uint2 pix = uint2(i.posH.xy);
     uint seed = Hash(pix.x + (pix.y << 16) + (uint)(g_frameIndex * 1664525.0));
 
-    // Diffuse GI: 2 cosine-weighted hemisphere traces
+    // 漫反射 GI：两次余弦加权采样。
     float3 indirectDiffuse = float3(0.0, 0.0, 0.0);
     const int kDiffuseRays = 2;
     [unroll]
@@ -225,13 +294,13 @@ PSLumenOut PSLumen(VSFullOut i)
         }
         else
         {
-            // Sky fallback
+            // 未命中时使用天空作为回退。
             indirectDiffuse += SampleSkyDiffuse(N) * (albedo / PI);
         }
     }
     indirectDiffuse /= (float)kDiffuseRays;
 
-    // Rough reflections: 1 trace along reflection direction (jittered by roughness)
+    // 粗糙反射：沿反射方向采样并按粗糙度扰动。
     float3 reflection = float3(0.0, 0.0, 0.0);
     {
         float3 R = reflect(-V, N);
@@ -249,6 +318,7 @@ PSLumenOut PSLumen(VSFullOut i)
             reflection = SampleSkySpecular(R, roughness);
         }
 
+        // Fresnel 权重。
         float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
         float3 F = FresnelSchlick(saturate(dot(N, V)), F0);
         reflection *= F * (1.0 - roughness);
@@ -256,7 +326,7 @@ PSLumenOut PSLumen(VSFullOut i)
 
     float3 cur = (indirectDiffuse + reflection) * (g_intensity * ao);
 
-    // Temporal accumulation via reprojection
+    // 通过重投影进行时序累积。
     float w = (g_historyValid > 0.5) ? saturate(g_temporalWeight) : 0.0;
     float3 accum = cur;
     {

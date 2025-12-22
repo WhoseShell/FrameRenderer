@@ -20,6 +20,12 @@
 
 namespace
 {
+/**
+ * @brief 获取当前可执行文件所在目录。
+ * @param 无。
+ * @return 可执行文件目录路径；失败返回空路径。
+ * @note 阶段：资源路径解析阶段。
+ */
 std::filesystem::path GetExecutableDir()
 {
     wchar_t pathBuf[MAX_PATH]{};
@@ -29,6 +35,12 @@ std::filesystem::path GetExecutableDir()
     return std::filesystem::path(pathBuf).parent_path();
 }
 
+/**
+ * @brief 将路径转换为绝对路径（失败则保持原样）。
+ * @param path 输入路径。
+ * @return 绝对路径或原始路径。
+ * @note 阶段：资源路径解析阶段。
+ */
 std::filesystem::path MakeAbsoluteOrSame(const std::filesystem::path& path)
 {
     std::error_code ec;
@@ -36,6 +48,12 @@ std::filesystem::path MakeAbsoluteOrSame(const std::filesystem::path& path)
     return ec ? path : abs;
 }
 
+/**
+ * @brief 解析 shader 文件路径（支持多目录查找）。
+ * @param file 输入文件名或路径。
+ * @return 解析后的路径（可能仍为原始路径）。
+ * @note 阶段：Shader 资源加载阶段。
+ */
 std::filesystem::path ResolveShaderPath(const std::filesystem::path& file)
 {
     std::error_code ec;
@@ -85,6 +103,12 @@ std::filesystem::path ResolveShaderPath(const std::filesystem::path& file)
     return file;
 }
 
+/**
+ * @brief 将宽字符串转换为 UTF-8。
+ * @param s 输入宽字符串。
+ * @return UTF-8 字符串（不可转换字符会回退为 '?'）。
+ * @note 阶段：日志/错误输出阶段。
+ */
 std::string NarrowUtf8(const std::wstring& s)
 {
     if (s.empty())
@@ -108,11 +132,27 @@ std::string NarrowUtf8(const std::wstring& s)
 class FShaderInclude final : public ID3DInclude
 {
 public:
+    /**
+     * @brief 构造包含处理器，设置基础目录与附加搜索目录。
+     * @param baseDir 基础包含目录。
+     * @param extraDirs 额外搜索目录列表。
+     * @return 无返回值（构造函数）。
+     * @note 阶段：Shader 编译阶段。
+     */
     FShaderInclude(const std::filesystem::path& baseDir, std::vector<std::filesystem::path> extraDirs)
         : BaseDir(baseDir), ExtraDirs(std::move(extraDirs))
     {
     }
 
+    /**
+     * @brief 打开 include 文件并返回其内容。
+     * @param pFileName include 文件名。
+     * @param pParentData 父级 include 数据指针。
+     * @param ppData 输出文件内容缓冲区指针。
+     * @param pBytes 输出内容字节数。
+     * @return HRESULT 状态码。
+     * @note 阶段：Shader 编译阶段。
+     */
     HRESULT STDMETHODCALLTYPE Open(D3D_INCLUDE_TYPE, LPCSTR pFileName, LPCVOID pParentData, LPCVOID* ppData, UINT* pBytes) override
     {
         if (!pFileName || !ppData || !pBytes)
@@ -187,6 +227,12 @@ public:
         return S_OK;
     }
 
+    /**
+     * @brief 关闭 include 文件并释放内存。
+     * @param pData Open 返回的数据指针。
+     * @return HRESULT 状态码。
+     * @note 阶段：Shader 编译阶段。
+     */
     HRESULT STDMETHODCALLTYPE Close(LPCVOID pData) override
     {
         ParentDirs.erase(pData);
@@ -201,11 +247,26 @@ private:
 };
 } // namespace
 
+/**
+ * @brief 将字节大小对齐到 256 字节。
+ * @param size 输入字节数。
+ * @return 256 字节对齐后的大小。
+ * @note 阶段：常量缓冲/上传资源对齐阶段。
+ */
 uint32 FSimpleSceneRenderer::Align256(uint32 size)
 {
     return (size + 255u) & ~255u;
 }
 
+/**
+ * @brief 创建并上传 RGBA8 纹理到 GPU。
+ * @param rhi 渲染硬件接口。
+ * @param width 纹理宽度。
+ * @param height 纹理高度。
+ * @param rgba RGBA8 数据指针。
+ * @return 纹理槽位（0 表示失败或白色默认纹理）。
+ * @note 阶段：资源导入/上传阶段。
+ */
 int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint32 height, const uint8* rgba)
 {
     if (!SRVHeap || !rgba || width == 0 || height == 0) return 0;
@@ -218,6 +279,7 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
     tex.Width = width;
     tex.Height = height;
 
+    // 创建默认堆上的纹理资源。
     D3D12_RESOURCE_DESC desc{};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     desc.Width = width;
@@ -239,6 +301,7 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
         nullptr,
         IID_PPV_ARGS(&tex.Resource)), "CreateCommittedResource texture failed");
 
+    // 创建上传缓冲并计算拷贝布局。
     // Upload buffer
     UINT64 uploadSize = 0;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
@@ -261,6 +324,7 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
     ThrowIfFailed(device->CreateCommittedResource(&heapUpload, D3D12_HEAP_FLAG_NONE, &buf, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload)),
                   "CreateCommittedResource upload failed");
 
+    // 将 RGBA 数据按行拷贝到上传缓冲。
     // Copy rgba into upload with row pitch
     {
         uint8* mapped = nullptr;
@@ -287,6 +351,7 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
     ctx.Width = width;
     ctx.Height = height;
 
+    // 录制一次性拷贝并转换资源状态。
     auto record = [](ID3D12GraphicsCommandList* cmd, void* user)
     {
         auto* c = reinterpret_cast<FUploadCtx*>(user);
@@ -316,6 +381,7 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
     const int slot = (int)Textures.size();
     Textures.push_back(tex);
 
+    // 创建 SRV。
     // Create SRV at slot
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -330,6 +396,12 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
     return slot;
 }
 
+/**
+ * @brief 分配材质 SRV 块（5 个连续槽位）。
+ * @param 无。
+ * @return 起始槽位索引。
+ * @note 阶段：材质资源管理阶段。
+ */
 int FSimpleSceneRenderer::AllocateMaterialSRVBlock()
 {
     if (!SRVHeap) return 0;
@@ -345,6 +417,17 @@ int FSimpleSceneRenderer::AllocateMaterialSRVBlock()
     return base;
 }
 
+/**
+ * @brief 更新材质 SRV 块的纹理槽位。
+ * @param base SRV 块起始槽位。
+ * @param albedoSlot Albedo 纹理槽位。
+ * @param normalSlot Normal 纹理槽位。
+ * @param roughnessSlot Roughness 纹理槽位。
+ * @param metallicSlot Metallic 纹理槽位。
+ * @param aoSlot AO 纹理槽位。
+ * @return 无返回值。
+ * @note 阶段：材质更新阶段。
+ */
 void FSimpleSceneRenderer::UpdateMaterialSRVBlock(int base, int albedoSlot, int normalSlot, int roughnessSlot, int metallicSlot, int aoSlot)
 {
     if (!SRVHeap) return;
@@ -352,6 +435,7 @@ void FSimpleSceneRenderer::UpdateMaterialSRVBlock(int base, int albedoSlot, int 
     SRVHeap->GetDevice(IID_PPV_ARGS(&device));
     if (!device) return;
 
+    // 将非法槽位夹取到默认纹理。
     auto clampSlot = [](int s) { return (s < 0) ? 0 : (s > 511 ? 0 : s); };
     albedoSlot = clampSlot(albedoSlot);
     normalSlot = clampSlot(normalSlot);
@@ -371,6 +455,12 @@ void FSimpleSceneRenderer::UpdateMaterialSRVBlock(int base, int albedoSlot, int 
     device->Release();
 }
 
+/**
+ * @brief 根据物体类型获取对应网格。
+ * @param type 物体类型。
+ * @return 对应的 GPU 网格引用。
+ * @note 阶段：渲染绘制阶段。
+ */
 const FSimpleSceneRenderer::FMeshGPU& FSimpleSceneRenderer::GetMesh(FSceneObject::EType type) const
 {
     switch (type)
@@ -382,6 +472,14 @@ const FSimpleSceneRenderer::FMeshGPU& FSimpleSceneRenderer::GetMesh(FSceneObject
     }
 }
 
+/**
+ * @brief 编译 HLSL Shader 文件并返回字节码。
+ * @param file shader 文件路径。
+ * @param entry 入口函数名。
+ * @param target 编译目标（如 vs_5_1）。
+ * @return 编译后的字节码。
+ * @note 阶段：渲染初始化/Shader 编译阶段。
+ */
 ComPtr<ID3DBlob> FSimpleSceneRenderer::CompileShaderFromFile(const std::wstring& file, const std::string& entry, const std::string& target)
 {
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
@@ -389,6 +487,7 @@ ComPtr<ID3DBlob> FSimpleSceneRenderer::CompileShaderFromFile(const std::wstring&
     flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif
 
+    // 解析 shader 路径并准备 include 搜索目录。
     const std::filesystem::path resolvedPath = ResolveShaderPath(file);
     const std::wstring resolvedFile = resolvedPath.wstring();
 
@@ -406,6 +505,7 @@ ComPtr<ID3DBlob> FSimpleSceneRenderer::CompileShaderFromFile(const std::wstring&
 
     FShaderInclude includeHandler(resolvedPath.parent_path(), includeDirs);
 
+    // 编译 shader。
     ComPtr<ID3DBlob> bytecode;
     ComPtr<ID3DBlob> errors;
     HRESULT hr = D3DCompileFromFile(
@@ -421,6 +521,7 @@ ComPtr<ID3DBlob> FSimpleSceneRenderer::CompileShaderFromFile(const std::wstring&
 
     if (errors)
     {
+        // 输出编译错误信息。
         std::string err((const char*)errors->GetBufferPointer(), errors->GetBufferSize());
         DebugOutput(std::wstring(err.begin(), err.end()));
     }
@@ -441,6 +542,12 @@ ComPtr<ID3DBlob> FSimpleSceneRenderer::CompileShaderFromFile(const std::wstring&
     return bytecode;
 }
 
+/**
+ * @brief 初始化硬件光线追踪（构建 BLAS）。
+ * @param rhi 渲染硬件接口。
+ * @return 无返回值。
+ * @note 阶段：渲染初始化阶段（DXR）。
+ */
 void FSimpleSceneRenderer::InitRaytracing(FD3D12RHI& rhi)
 {
     bRaytracingSupported = false;
@@ -463,6 +570,7 @@ void FSimpleSceneRenderer::InitRaytracing(FD3D12RHI& rhi)
 
     bRaytracingSupported = true;
 
+    // 构建每个基础网格的 BLAS。
     auto buildBLAS = [&](const FMeshGPU& mesh, FRTMeshAS& out, const char* name)
     {
         if (!mesh.VertexBuffer || !mesh.IndexBuffer || mesh.IndexCount == 0)
@@ -564,10 +672,17 @@ void FSimpleSceneRenderer::InitRaytracing(FD3D12RHI& rhi)
     buildBLAS(MeshCone, RTMeshCone, "Build BLAS (Cone) failed");
 }
 
+/**
+ * @brief 初始化渲染器资源（根签名、PSO、网格、常量缓冲等）。
+ * @param rhi 渲染硬件接口。
+ * @return 无返回值。
+ * @note 阶段：渲染初始化阶段。
+ */
 void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
 {
     ID3D12Device* device = rhi.GetDevice();
 
+    // 创建主渲染根签名。
     // Root signature (CBV b0 + material SRVs + shadow data)
     D3D12_ROOT_PARAMETER params[4]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -652,6 +767,7 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
     ThrowIfFailed(device->CreateRootSignature(0, sigBlob->GetBufferPointer(), sigBlob->GetBufferSize(), IID_PPV_ARGS(&RootSig)),
                   "CreateRootSignature failed");
 
+    // 编译主渲染 Shader。
     // Shaders
     std::wstring pbrPath = std::wstring(SHADER_DIR) + L"/pbr.hlsl";
     auto vs = CompileShaderFromFile(pbrPath, "VSMain", "vs_5_0");
@@ -746,6 +862,7 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
         }
     }
 
+    // Gizmo 线框渲染 PSO。
     // Line PSO for gizmo
     {
         std::wstring linesPath = std::wstring(SHADER_DIR) + L"/lines.hlsl";
@@ -770,6 +887,7 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
         ThrowIfFailed(device->CreateGraphicsPipelineState(&linePso, IID_PPV_ARGS(&PSO_Lines)), "CreateGraphicsPipelineState (lines) failed");
     }
 
+    // 初始化各渲染通道的 PSO/RootSignature。
     InitSkyPass(rhi, blend, rast);
     InitSkyIBLPass(rhi);
     InitTonemapPass(rhi, blend, rast);
@@ -1086,12 +1204,20 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
     EnsureHDRTargets(rhi);
 }
 
+/**
+ * @brief 释放渲染器资源并解除映射。
+ * @param 无。
+ * @return 无返回值。
+ * @note 阶段：渲染销毁阶段。
+ */
 void FSimpleSceneRenderer::Shutdown()
 {
+    // 解除 Gizmo 顶点缓冲映射。
     if (GizmoVB && GizmoMapped)
         GizmoVB->Unmap(0, nullptr);
     GizmoMapped = nullptr;
 
+    // 解除常量缓冲映射并清理 RT 相关数据。
     for (uint32 i = 0; i < FD3D12RHI::kFrameCount; ++i)
     {
         if (ConstantBufferObjects[i] && CBMappedObjects[i])
@@ -1205,6 +1331,12 @@ void FSimpleSceneRenderer::Shutdown()
     bSWRTGIHistoryValid = false;
 }
 
+/**
+ * @brief 确保 HDR 渲染目标与当前分辨率匹配。
+ * @param rhi 渲染硬件接口。
+ * @return 无返回值。
+ * @note 阶段：渲染帧资源准备阶段。
+ */
 void FSimpleSceneRenderer::EnsureHDRTargets(FD3D12RHI& rhi)
 {
     ID3D12Device* device = rhi.GetDevice();
@@ -1215,6 +1347,7 @@ void FSimpleSceneRenderer::EnsureHDRTargets(FD3D12RHI& rhi)
     if (HDRColor && w == HDRWidth && h == HDRHeight)
         return;
 
+    // 尺寸发生变化时重建 HDR 资源与 RTV。
     HDRWidth = w;
     HDRHeight = h;
     HDRColor.Reset();
@@ -1273,6 +1406,12 @@ void FSimpleSceneRenderer::EnsureHDRTargets(FD3D12RHI& rhi)
     HDRState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 }
 
+/**
+ * @brief 确保阴影贴图资源存在并完成初始化。
+ * @param rhi 渲染硬件接口。
+ * @return 无返回值。
+ * @note 阶段：阴影资源准备阶段。
+ */
 void FSimpleSceneRenderer::EnsureShadowMap(FD3D12RHI& rhi)
 {
     ID3D12Device* device = rhi.GetDevice();
@@ -1280,6 +1419,7 @@ void FSimpleSceneRenderer::EnsureShadowMap(FD3D12RHI& rhi)
     if (ShadowMap)
         return;
 
+    // 创建深度纹理与 DSV/SRV 资源。
     const uint32 size = std::max<uint32>(1u, ShadowMapSize);
 
     D3D12_RESOURCE_DESC desc{};
@@ -1334,6 +1474,12 @@ void FSimpleSceneRenderer::EnsureShadowMap(FD3D12RHI& rhi)
     ShadowState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 }
 
+/**
+ * @brief 确保延迟渲染相关的 GBuffer 与 GI 资源存在。
+ * @param rhi 渲染硬件接口。
+ * @return 无返回值。
+ * @note 阶段：延迟渲染资源准备阶段。
+ */
 void FSimpleSceneRenderer::EnsureDeferredTargets(FD3D12RHI& rhi)
 {
     ID3D12Device* device = rhi.GetDevice();
@@ -1347,6 +1493,7 @@ void FSimpleSceneRenderer::EnsureDeferredTargets(FD3D12RHI& rhi)
         w == GBufferWidth && h == GBufferHeight)
         return;
 
+    // 资源重建：清空旧资源并重置状态。
     GBufferWidth = w;
     GBufferHeight = h;
     GBuffer0.Reset();
@@ -1661,6 +1808,16 @@ void FSimpleSceneRenderer::EnsureDeferredTargets(FD3D12RHI& rhi)
     LumenSwrtSurfaceStates[1] = D3D12_RESOURCE_STATE_GENERIC_READ;
 }
 
+/**
+ * @brief 准备 HWRT 场景数据（TLAS/实例描述与对象数据）。
+ * @param rhi 渲染硬件接口。
+ * @param frameIndex 当前帧索引。
+ * @param objects 场景对象列表。
+ * @param previewPos 预览对象位置（可空）。
+ * @param previewType 预览对象类型。
+ * @return 实例数量（0 表示未启用或无实例）。
+ * @note 阶段：HWRT GI 准备阶段。
+ */
 uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
     FD3D12RHI& rhi,
     uint32 frameIndex,
@@ -1687,7 +1844,7 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
 
     const uint32 capacity = MaxObjects + 1; // include a potential preview instance
 
-    // Ensure per-frame object data buffer (upload, persistently mapped).
+    // 确保每帧对象数据缓冲（上传堆，常驻映射）。
     {
         const UINT64 bytes = UINT64(sizeof(FRTObjectData)) * UINT64(capacity);
         if (!RTObjectBuffer[frameIndex])
@@ -1721,7 +1878,7 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
         }
     }
 
-    // Ensure per-frame instance desc buffer (upload, persistently mapped).
+    // 确保每帧实例描述缓冲（上传堆，常驻映射）。
     {
         const UINT64 bytes = UINT64(sizeof(D3D12_RAYTRACING_INSTANCE_DESC)) * UINT64(capacity);
         auto& rf = RTFrame[frameIndex];
@@ -1758,7 +1915,7 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
         }
     }
 
-    // Ensure per-frame TLAS + scratch (default heap).
+    // 确保每帧 TLAS 与 Scratch 缓冲（默认堆）。
     {
         auto& rf = RTFrame[frameIndex];
         if (!rf.TLAS || !rf.Scratch)
@@ -1825,7 +1982,7 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
         }
     };
 
-    // Fill per-instance object data + TLAS instance descriptors.
+    // 填充实例数据与 TLAS 实例描述。
     auto* inst = reinterpret_cast<D3D12_RAYTRACING_INSTANCE_DESC*>(RTFrame[frameIndex].InstanceDescsMapped);
     if (!inst || !RTObjectMapped[frameIndex])
         return 0;
@@ -1874,6 +2031,7 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
 
     if (bHasPreview)
     {
+        // 追加预览对象实例。
         FSceneObject preview{};
         preview.Type = previewType;
         preview.Position = *previewPos;
@@ -1887,6 +2045,14 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
     return instanceCount;
 }
 
+/**
+ * @brief 录制 TLAS 构建命令。
+ * @param cmd 命令列表。
+ * @param frameIndex 帧索引。
+ * @param instanceCount 实例数量。
+ * @return 无返回值。
+ * @note 阶段：HWRT GI 构建阶段。
+ */
 void FSimpleSceneRenderer::RecordBuildTLAS(ID3D12GraphicsCommandList* cmd, uint32 frameIndex, uint32 instanceCount)
 {
     if (!bRaytracingSupported || instanceCount == 0)
@@ -1921,6 +2087,28 @@ void FSimpleSceneRenderer::RecordBuildTLAS(ID3D12GraphicsCommandList* cmd, uint3
     cl4->ResourceBarrier(1, &uav);
 }
 
+/**
+ * @brief 渲染一帧场景（创建视图并选择渲染路径）。
+ * @param rhi 渲染硬件接口。
+ * @param camera 相机参数。
+ * @param timeSeconds 当前时间（秒）。
+ * @param renderPath 渲染路径。
+ * @param bEnableLumen 是否启用 Lumen。
+ * @param bEnableLumenSWRT 是否启用 SWRT GI。
+ * @param bEnableLumenHWRT 是否启用 HWRT GI。
+ * @param objects 场景对象列表。
+ * @param selectedIndex 选中对象索引。
+ * @param bScaleGizmo Gizmo 是否为缩放模式。
+ * @param lightDirWs 光源方向。
+ * @param bEnableTonemap 是否启用 Tonemap。
+ * @param sunIntensity 太阳强度。
+ * @param sky 天空参数。
+ * @param leftInsetPx 左侧 UI 预留像素。
+ * @param previewPos 预览位置（可空）。
+ * @param previewType 预览对象类型。
+ * @return 无返回值。
+ * @note 阶段：渲染帧执行阶段。
+ */
 void FSimpleSceneRenderer::Render(
     FD3D12RHI& rhi,
     const FCamera& camera,
@@ -1940,6 +2128,7 @@ void FSimpleSceneRenderer::Render(
     const DirectX::XMFLOAT3* previewPos,
     FSceneObject::EType previewType)
 {
+    // 构建视图族参数。
     FSceneViewFamily viewFamily{};
     viewFamily.RHI = &rhi;
     viewFamily.bEnableTonemap = bEnableTonemap;
@@ -1950,11 +2139,13 @@ void FSimpleSceneRenderer::Render(
     viewFamily.Sky = &sky;
     viewFamily.LeftInsetPx = leftInsetPx;
 
+    // 构建单视图参数。
     FSceneView view{};
     view.Camera = &camera;
     view.LightDirWs = lightDirWs;
     view.TimeSeconds = timeSeconds;
 
+    // 构建渲染输入。
     FSceneRendererInputs inputs{};
     inputs.Objects = &objects;
     inputs.SelectedIndex = selectedIndex;
@@ -1962,6 +2153,7 @@ void FSimpleSceneRenderer::Render(
     inputs.PreviewPos = previewPos;
     inputs.PreviewType = previewType;
 
+    // 根据渲染路径选择场景渲染器。
     if (renderPath == ERenderPath::Deferred)
     {
         FDeferredShadingSceneRenderer sceneRenderer(*this, viewFamily, view, inputs);

@@ -7,6 +7,14 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 初始化阴影通道（RootSig/PSO）。
+ * @param rhi 渲染硬件接口。
+ * @param basePso 基础 PSO 模板。
+ * @param rast 光栅化状态描述。
+ * @return 无返回值。
+ * @note 阶段：阴影通道初始化阶段。
+ */
 void FSimpleSceneRenderer::InitShadowPass(
     FD3D12RHI& rhi,
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC& basePso,
@@ -15,6 +23,7 @@ void FSimpleSceneRenderer::InitShadowPass(
     ID3D12Device* device = rhi.GetDevice();
     if (!device) return;
 
+    // RootSignature：对象 CB + 阴影 CB。
     D3D12_ROOT_PARAMETER params[2]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[0].Descriptor.ShaderRegister = 0;
@@ -42,6 +51,7 @@ void FSimpleSceneRenderer::InitShadowPass(
     ThrowIfFailed(device->CreateRootSignature(0, sigShadow->GetBufferPointer(), sigShadow->GetBufferSize(), IID_PPV_ARGS(&ShadowRootSig)),
                   "CreateRootSignature (shadow) failed");
 
+    // 编译阴影 Shader 并创建 PSO。
     std::wstring shadowPath = std::wstring(SHADER_DIR) + L"/shadow.hlsl";
     auto vsShadow = CompileShaderFromFile(shadowPath, "VSMain", "vs_5_0");
     auto psShadow = CompileShaderFromFile(shadowPath, "PSMain", "ps_5_0");
@@ -67,6 +77,14 @@ void FSimpleSceneRenderer::InitShadowPass(
     ThrowIfFailed(device->CreateGraphicsPipelineState(&psoShadow, IID_PPV_ARGS(&ShadowPSO)), "CreateGraphicsPipelineState (shadow) failed");
 }
 
+/**
+ * @brief 更新阴影常量缓冲（光源矩阵等）。
+ * @param cameraPosWs 相机世界位置。
+ * @param lightDirWs 光源方向。
+ * @param frameIndex 帧索引。
+ * @return 无返回值。
+ * @note 阶段：阴影参数更新阶段。
+ */
 void FSimpleSceneRenderer::UpdateShadowCB(
     const DirectX::XMFLOAT3& cameraPosWs,
     const DirectX::XMFLOAT3& lightDirWs,
@@ -81,6 +99,7 @@ void FSimpleSceneRenderer::UpdateShadowCB(
     const float nearZ = 0.1f;
     const float farZ = shadowDistance * 2.0f + shadowHalfSize;
 
+    // 计算光源视图与正交投影矩阵。
     XMVECTOR dir = XMVector3Normalize(XMLoadFloat3(&lightDirWs));
     XMVECTOR up = XMVectorSet(0, 1, 0, 0);
     const float upDot = XMVectorGetX(XMVector3Dot(dir, up));
@@ -100,6 +119,16 @@ void FSimpleSceneRenderer::UpdateShadowCB(
     std::memcpy(CBMappedShadow[frameIndex], &cb, sizeof(cb));
 }
 
+/**
+ * @brief 添加阴影贴图渲染 Pass。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param objects 场景对象列表。
+ * @param previewPos 预览位置（可空）。
+ * @param previewType 预览对象类型。
+ * @return 无返回值。
+ * @note 阶段：阴影渲染阶段。
+ */
 void FSimpleSceneRenderer::AddShadowPass(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -121,6 +150,7 @@ void FSimpleSceneRenderer::AddShadowPass(
         if (!shadowMap || !shadowSig || !shadowPso)
             return;
 
+        // 切换阴影贴图到深度写状态。
         if (ShadowState != D3D12_RESOURCE_STATE_DEPTH_WRITE)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -141,6 +171,7 @@ void FSimpleSceneRenderer::AddShadowPass(
         cl->OMSetRenderTargets(0, nullptr, FALSE, &shadowDsv);
         cl->ClearDepthStencilView(shadowDsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
+        // 绘制所有对象到阴影贴图。
         cl->SetPipelineState(shadowPso);
         cl->SetGraphicsRootSignature(shadowSig);
         cl->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -158,6 +189,7 @@ void FSimpleSceneRenderer::AddShadowPass(
 
         if (previewPos && drawCount < MaxObjects)
         {
+            // 预览对象写入阴影贴图。
             const auto& mesh = GetMesh(previewType);
             cl->SetGraphicsRootConstantBufferView(0, cbBase + (UINT64)CBSize * drawCount);
             cl->IASetVertexBuffers(0, 1, &mesh.VBView);
@@ -167,6 +199,7 @@ void FSimpleSceneRenderer::AddShadowPass(
 
         if (ShadowState == D3D12_RESOURCE_STATE_DEPTH_WRITE)
         {
+            // 渲染结束后切回 SRV 状态。
             D3D12_RESOURCE_BARRIER b{};
             b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             b.Transition.pResource = shadowMap;

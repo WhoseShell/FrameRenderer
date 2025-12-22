@@ -41,15 +41,29 @@ struct VSOut
     float4 posH : SV_Position;
 };
 
+/**
+ * @brief 顶点着色器：输出光源裁剪空间位置。
+ * @param i 顶点输入。
+ * @return 顶点输出（光源裁剪空间位置）。
+ * @note 阶段：阴影深度渲染顶点阶段。
+ */
 VSOut VSMain(VSIn i)
 {
     VSOut o;
+    // 转换到世界空间并再到光源裁剪空间。
     float4 posW = mul(float4(i.pos, 1.0), g_world);
     o.posH = mul(posW, g_lightViewProj);
     return o;
 }
 
+/**
+ * @brief 像素着色器：输出深度值。
+ * @param i 插值后的顶点输出。
+ * @return 深度值。
+ * @note 阶段：阴影深度渲染像素阶段。
+ */
 float PSMain(VSOut i) : SV_Depth
 {
+    // 直接输出裁剪空间 Z 作为深度。
     return i.posH.z;
 }

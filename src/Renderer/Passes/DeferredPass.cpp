@@ -6,6 +6,15 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 初始化延迟渲染相关 PSO 与根签名。
+ * @param rhi 渲染硬件接口。
+ * @param basePso 基础 PSO 模板（复用输入布局/VS 等）。
+ * @param blend 混合状态描述。
+ * @param rast 光栅化状态描述。
+ * @return 无返回值。
+ * @note 阶段：延迟渲染通道初始化阶段。
+ */
 void FSimpleSceneRenderer::InitDeferredPass(
     FD3D12RHI& rhi,
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC& basePso,
@@ -15,12 +24,14 @@ void FSimpleSceneRenderer::InitDeferredPass(
     ID3D12Device* device = rhi.GetDevice();
     if (!device) return;
 
+    // 编译延迟渲染 Shader。
     std::wstring deferredPath = std::wstring(SHADER_DIR) + L"/deferred.hlsl";
     auto psGBuffer = CompileShaderFromFile(deferredPath, "PSGBuffer", "ps_5_0");
     auto vsLight = CompileShaderFromFile(deferredPath, "VSFullscreen", "vs_5_0");
     auto psLight = CompileShaderFromFile(deferredPath, "PSDeferredLighting", "ps_5_0");
 
     // GBuffer PSO: same root signature + VS as forward, different PS + MRT outputs.
+    // GBuffer PSO：复用 VS 与根签名，输出 MRT。
     D3D12_GRAPHICS_PIPELINE_STATE_DESC gbufPso = basePso;
     gbufPso.PS = { psGBuffer->GetBufferPointer(), psGBuffer->GetBufferSize() };
     gbufPso.NumRenderTargets = 3;
@@ -30,6 +41,7 @@ void FSimpleSceneRenderer::InitDeferredPass(
     ThrowIfFailed(device->CreateGraphicsPipelineState(&gbufPso, IID_PPV_ARGS(&PSO_GBuffer)), "CreateGraphicsPipelineState (gbuffer) failed");
 
     // Deferred lighting root signature: b0 + gbuffer SRVs + shadow CB + shadow SRV
+    // 延迟光照根签名：CBV + GBuffer SRV + 阴影数据。
     D3D12_ROOT_PARAMETER paramsDL[4]{};
     paramsDL[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     paramsDL[0].Descriptor.ShaderRegister = 0;
@@ -137,6 +149,15 @@ void FSimpleSceneRenderer::InitDeferredPass(
     ThrowIfFailed(device->CreateGraphicsPipelineState(&psoDL, IID_PPV_ARGS(&DeferredLightPSO)), "CreateGraphicsPipelineState (deferred lighting) failed");
 }
 
+/**
+ * @brief 更新延迟光照常量缓冲。
+ * @param cameraPosWs 相机世界位置。
+ * @param lightDirWs 主光源方向。
+ * @param sunIntensity 太阳强度。
+ * @param frameIndex 帧索引。
+ * @return 无返回值。
+ * @note 阶段：延迟光照参数更新阶段。
+ */
 void FSimpleSceneRenderer::UpdateDeferredCB(
     const DirectX::XMFLOAT3& cameraPosWs,
     const DirectX::XMFLOAT3& lightDirWs,
@@ -154,6 +175,18 @@ void FSimpleSceneRenderer::UpdateDeferredCB(
     std::memcpy(CBMappedDeferred[frameIndex], &dcb, sizeof(dcb));
 }
 
+/**
+ * @brief 添加 GBuffer 填充与状态转换 Pass。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param vp 视口。
+ * @param sc 裁剪区域。
+ * @param objects 场景对象列表。
+ * @param previewPos 预览位置（可空）。
+ * @param previewType 预览对象类型。
+ * @return 无返回值。
+ * @note 阶段：延迟渲染 GBuffer 阶段。
+ */
 void FSimpleSceneRenderer::AddGBufferPasses(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -185,6 +218,7 @@ void FSimpleSceneRenderer::AddGBufferPasses(
 
     graph.AddPass("ClearGBuffer", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 转换到 RT 状态并清理 GBuffer。
         ID3D12Resource* res[3] = { gbuf0, gbuf1, gbuf2 };
         for (int i = 0; i < 3; ++i)
         {
@@ -215,6 +249,7 @@ void FSimpleSceneRenderer::AddGBufferPasses(
 
     graph.AddPass("GBuffer", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 绘制场景到 GBuffer。
         cl->RSSetViewports(1, &vp);
         cl->RSSetScissorRects(1, &sc);
 
@@ -252,6 +287,7 @@ void FSimpleSceneRenderer::AddGBufferPasses(
 
         if (previewPos && drawCount < MaxObjects)
         {
+            // 预览对象写入 GBuffer。
             const auto& mesh = GetMesh(previewType);
             cl->SetGraphicsRootConstantBufferView(0, cbBase + (UINT64)CBSize * drawCount);
             if (srvHeap)
@@ -268,6 +304,7 @@ void FSimpleSceneRenderer::AddGBufferPasses(
 
     graph.AddPass("GBufferToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 将 GBuffer 转回 SRV 可读状态。
         ID3D12Resource* res[3] = { gbuf0, gbuf1, gbuf2 };
         for (int i = 0; i < 3; ++i)
         {
@@ -287,6 +324,16 @@ void FSimpleSceneRenderer::AddGBufferPasses(
     });
 }
 
+/**
+ * @brief 添加延迟光照 Pass（全屏三角形）。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param vp 视口。
+ * @param sc 裁剪区域。
+ * @param hdrRtv HDR 目标 RTV。
+ * @return 无返回值。
+ * @note 阶段：延迟光照阶段。
+ */
 void FSimpleSceneRenderer::AddDeferredLightingPass(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -305,6 +352,7 @@ void FSimpleSceneRenderer::AddDeferredLightingPass(
 
     graph.AddPass("DeferredLighting", [=](ID3D12GraphicsCommandList* cl)
     {
+        // 读取 GBuffer 并输出 HDR 光照结果。
         cl->RSSetViewports(1, &vp);
         cl->RSSetScissorRects(1, &sc);
         cl->OMSetRenderTargets(1, &hdrRtv, FALSE, nullptr);

@@ -6,6 +6,15 @@
 #include "Renderer/RenderGraph.h"
 #include "Renderer/SimpleSceneRenderer.h"
 
+/**
+ * @brief 构建场景渲染器并保存渲染参数引用。
+ * @param renderer 渲染器实例。
+ * @param viewFamily 视图族参数。
+ * @param view 视图参数。
+ * @param inputs 渲染输入（对象/选择/Gizmo）。
+ * @return 无返回值（构造函数）。
+ * @note 阶段：渲染帧构建阶段。
+ */
 FSceneRenderer::FSceneRenderer(
     FSimpleSceneRenderer& renderer,
     const FSceneViewFamily& viewFamily,
@@ -18,12 +27,19 @@ FSceneRenderer::FSceneRenderer(
 {
 }
 
+/**
+ * @brief 执行一帧场景渲染（构建渲染图并提交）。
+ * @param 无。
+ * @return 无返回值。
+ * @note 阶段：渲染帧执行阶段。
+ */
 void FSceneRenderer::Render()
 {
     if (!ViewFamily.RHI || !View.Camera || !Inputs.Objects)
         return;
 
     FD3D12RHI& rhi = *ViewFamily.RHI;
+    // 确保必要的目标资源存在。
     Renderer.EnsureHDRTargets(rhi);
     Renderer.EnsureShadowMap(rhi);
 
@@ -34,12 +50,14 @@ void FSceneRenderer::Render()
         Renderer.EnsureDeferredTargets(rhi);
     Renderer.EnsureSkyIBLTargets(rhi);
 
+    // 开始一帧并获取命令列表。
     Frame = rhi.BeginFrame();
     ID3D12GraphicsCommandList* cmd = Frame.CmdList;
 
     DirectX::XMMATRIX invVP{};
     {
         using namespace DirectX;
+        // 计算视图/投影矩阵与逆矩阵。
         const float aspect = (rhi.GetHeight() == 0) ? 1.0f : (float)rhi.GetWidth() / (float)rhi.GetHeight();
 
         const XMMATRIX view = View.Camera->GetViewMatrix();
@@ -56,6 +74,7 @@ void FSceneRenderer::Render()
     // Update constant buffers (per-frame)
     {
         using namespace DirectX;
+        // 写入每个对象的常量缓冲（MVP/材质）。
         const XMMATRIX viewProj = XMLoadFloat4x4(&ViewInfo.ViewProj);
         const uint32 drawCount = (uint32)std::min<size_t>(objects.size(), FSimpleSceneRenderer::MaxObjects);
         for (uint32 i = 0; i < drawCount; ++i)
@@ -88,6 +107,7 @@ void FSceneRenderer::Render()
         uint32 previewSlot = drawCount;
         if (Inputs.PreviewPos && previewSlot < FSimpleSceneRenderer::MaxObjects)
         {
+            // 写入预览对象的常量数据。
             const XMMATRIX world = XMMatrixTranslation(Inputs.PreviewPos->x, Inputs.PreviewPos->y, Inputs.PreviewPos->z);
             const XMMATRIX worldInvT = XMMatrixTranspose(XMMatrixInverse(nullptr, world));
             FSimpleSceneRenderer::FSceneCB cb{};
@@ -106,6 +126,7 @@ void FSceneRenderer::Render()
 
         if (hasSelection)
         {
+            // Gizmo 常量缓冲（仅平移）。
             const auto& obj = objects[Inputs.SelectedIndex];
             const XMMATRIX gizmoWorld = XMMatrixTranslation(obj.Position.x, obj.Position.y, obj.Position.z);
             const XMMATRIX gizmoInvT = XMMatrixIdentity();
@@ -117,16 +138,19 @@ void FSceneRenderer::Render()
             std::memcpy(Renderer.CBMappedGizmo[Frame.FrameIndex], &cb, sizeof(cb));
         }
 
+        // Sky/Shadow 常量缓冲更新。
         if (ViewFamily.Sky)
             Renderer.UpdateSkyCB(invVP, View.Camera->Position, View.LightDirWs, ViewFamily.SunIntensity, *ViewFamily.Sky, Frame.FrameIndex);
         Renderer.UpdateShadowCB(View.Camera->Position, View.LightDirWs, Frame.FrameIndex);
     }
 
+    // 后处理与延迟渲染常量缓冲。
     Renderer.UpdateTonemapCB(ViewFamily.bEnableTonemap, Frame.FrameIndex);
 
     if (bDeferred)
         Renderer.UpdateDeferredCB(View.Camera->Position, View.LightDirWs, ViewFamily.SunIntensity, Frame.FrameIndex);
 
+    // Lumen 参数与 GI 相关更新。
     Renderer.UpdateLumenCB(rhi, bUseLumen, ViewInfo.ViewProj, View.Camera->Position, View.LightDirWs,
                            ViewFamily.SunIntensity, View.TimeSeconds, Frame.FrameIndex);
 
@@ -144,17 +168,20 @@ void FSceneRenderer::Render()
         rhi, bUseLumenSWRT, ViewInfo.ViewProj, View.Camera->Position, View.LightDirWs, ViewFamily.SunIntensity, View.TimeSeconds,
         Frame.FrameIndex, objects, Inputs.PreviewPos, Inputs.PreviewType);
 
+    // 计算视口与裁剪区域（考虑左侧 UI）。
     const float x0 = (float)std::max(0, ViewFamily.LeftInsetPx);
     const float w3d = (float)rhi.GetWidth() - x0;
     ViewInfo.Viewport = { x0, 0.0f, w3d, (float)rhi.GetHeight(), 0.0f, 1.0f };
     ViewInfo.Scissor = { (LONG)x0, 0, (LONG)rhi.GetWidth(), (LONG)rhi.GetHeight() };
 
+    // 构建渲染图。
     FRenderGraphBuilder graph(cmd);
     auto hdr = Renderer.HDRColor.Get();
     const D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv = Renderer.HDRRTV;
 
     graph.AddPass("ClearHDR", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 清理 HDR 颜色与深度。
         if (hdr && Renderer.HDRState != D3D12_RESOURCE_STATE_RENDER_TARGET)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -176,15 +203,18 @@ void FSceneRenderer::Render()
         cl->ClearDepthStencilView(Frame.DSV, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     });
 
+    // 天空、阴影等前置 Pass。
     const bool skyEnabled = (ViewFamily.Sky && ViewFamily.Sky->Enable);
     Renderer.AddSkyIBLPasses(graph, Frame, skyEnabled);
     Renderer.AddShadowPass(graph, Frame, objects, Inputs.PreviewPos, Inputs.PreviewType);
     Renderer.AddSkyPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv, skyEnabled);
 
+    // 路径相关渲染。
     RenderPath(graph, hdrRtv);
 
     if (hasSelection && Renderer.GizmoMapped)
     {
+        // Gizmo 可视化 Pass。
         // Gizmo vertices are in local-space around origin; world-aligned via gizmo CB (translation only).
         constexpr float L = 1.5f;
         uint32 gizmoVertCount = 0;
@@ -274,6 +304,7 @@ void FSceneRenderer::Render()
 
         graph.AddPass("DrawGizmo", [=, this](ID3D12GraphicsCommandList* cl)
         {
+            // 画 Gizmo 线段。
             cl->RSSetViewports(1, &ViewInfo.Viewport);
             cl->RSSetScissorRects(1, &ViewInfo.Scissor);
             cl->OMSetRenderTargets(1, &hdrRtv, FALSE, &Frame.DSV);
@@ -296,18 +327,27 @@ void FSceneRenderer::Render()
         });
     }
 
+    // 后处理：HDR->SRV + Tonemap。
     Renderer.AddHDRToSRVPass(graph);
     Renderer.AddTonemapPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor);
 
     graph.Execute();
     rhi.EndFrame();
 
+    // 保存历史状态用于时序效果。
     Renderer.PrevViewProj = ViewInfo.ViewProj;
     Renderer.bLumenHistoryValid = (bUseLumen && !bUseHWRTGI && !bUseLumenSWRT);
     Renderer.bHWRTGIHistoryValid = (bUseHWRTGI && RtInstanceCount > 0);
     Renderer.bSWRTGIHistoryValid = (bUseLumenSWRT && SwrtObjectCount > 0);
 }
 
+/**
+ * @brief 前向渲染路径的渲染图构建。
+ * @param graph 渲染图构建器。
+ * @param hdrRtv HDR 目标 RTV。
+ * @return 无返回值。
+ * @note 阶段：前向渲染路径构建阶段。
+ */
 void FForwardShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv)
 {
     auto rootSig = Renderer.RootSig.Get();
@@ -325,6 +365,7 @@ void FForwardShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_
 
     graph.AddPass("DrawScene", [=, this](ID3D12GraphicsCommandList* cl)
     {
+        // 绘制场景对象到 HDR 目标。
         cl->RSSetViewports(1, &ViewInfo.Viewport);
         cl->RSSetScissorRects(1, &ViewInfo.Scissor);
         cl->OMSetRenderTargets(1, &hdrRtv, FALSE, &Frame.DSV);
@@ -360,6 +401,7 @@ void FForwardShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_
 
         if (Inputs.PreviewPos && drawCount < FSimpleSceneRenderer::MaxObjects)
         {
+            // 绘制预览对象。
             const auto& mesh = Renderer.GetMesh(Inputs.PreviewType);
             cl->SetGraphicsRootConstantBufferView(0, cbBase + (UINT64)Renderer.CBSize * drawCount);
             if (srvHeap)
@@ -375,13 +417,23 @@ void FForwardShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_
     });
 }
 
+/**
+ * @brief 延迟渲染路径的渲染图构建。
+ * @param graph 渲染图构建器。
+ * @param hdrRtv HDR 目标 RTV。
+ * @return 无返回值。
+ * @note 阶段：延迟渲染路径构建阶段。
+ */
 void FDeferredShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv)
 {
+    // 先填充 GBuffer。
     Renderer.AddGBufferPasses(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, *Inputs.Objects, Inputs.PreviewPos, Inputs.PreviewType);
 
     if (bUseHWRTGI && RtInstanceCount > 0)
+        // TLAS 构建 Pass。
         Renderer.AddBuildTLASPass(graph, Frame.FrameIndex, RtInstanceCount);
 
+    // 延迟光照 Pass。
     Renderer.AddDeferredLightingPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv);
 
     if (bUseHWRTGI && RtInstanceCount > 0)

@@ -14,14 +14,57 @@
 class FEngine
 {
 public:
+    /**
+     * @brief 引擎主入口，创建窗口、初始化渲染器并进入主循环。
+     * @param hInstance 应用实例句柄。
+     * @return 无返回值；内部处理消息循环与渲染。
+     * @note 阶段：应用启动与主循环阶段。
+     */
     void Run(HINSTANCE hInstance);
 
 private:
+    /**
+     * @brief Win32 消息入口的静态转发器。
+     * @param userPtr 用户指针（通常为 FEngine 实例）。
+     * @param hwnd 窗口句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：运行时消息分发阶段。
+     */
     static LRESULT WindowMessageHandler(void* userPtr, HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    /**
+     * @brief 处理主窗口的 Win32 消息。
+     * @param hwnd 窗口句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：运行时 UI/输入处理阶段。
+     */
     LRESULT HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+    /**
+     * @brief 单帧更新逻辑（输入、交互、动画、场景更新）。
+     * @param dtSeconds 帧间隔时间（秒）。
+     * @return 无返回值。
+     * @note 阶段：每帧更新阶段（渲染前）。
+     */
     void Tick(float dtSeconds);
+    /**
+     * @brief 重新布局 UI（侧栏与底栏）。
+     * @param 无。
+     * @return 无返回值。
+     * @note 阶段：窗口尺寸变化/初始化阶段。
+     */
     void LayoutUI();
+    /**
+     * @brief 刷新天空参数在 UI 上的显示。
+     * @param 无。
+     * @return 无返回值。
+     * @note 阶段：UI 同步阶段。
+     */
     void UpdateSkyUI();
 
 private:
@@ -131,24 +174,102 @@ private:
 
     // Bottom panel subclass (for file drop)
     WNDPROC BottomOldProc = nullptr;
+    /**
+     * @brief 底部面板窗口过程（处理拖拽文件等）。
+     * @param hwnd 面板窗口句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：运行时 UI 交互阶段。
+     */
     static LRESULT CALLBACK BottomWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     // Material editor window
     HWND MaterialEditorHwnd = nullptr;
     int EditingMaterialIndex = -1;
+    /**
+     * @brief 材质编辑器窗口过程。
+     * @param hwnd 材质编辑器窗口句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：运行时 UI 交互阶段。
+     */
     static LRESULT CALLBACK MaterialEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    /**
+     * @brief 打开材质编辑器并绑定指定材质。
+     * @param materialIndex 材质索引。
+     * @return 无返回值。
+     * @note 阶段：UI 编辑器交互阶段。
+     */
     void OpenMaterialEditor(int materialIndex);
+    /**
+     * @brief 将材质数据同步到编辑器控件。
+     * @param 无。
+     * @return 无返回值。
+     * @note 阶段：UI 同步阶段。
+     */
     void UpdateMaterialEditorControls();
+    /**
+     * @brief 将编辑器控件的值写回材质数据。
+     * @param 无。
+     * @return 无返回值。
+     * @note 阶段：UI 编辑提交阶段。
+     */
     void ApplyMaterialEditorChanges();
 
     // Helpers
+    /**
+     * @brief 从磁盘加载纹理并加入资源列表。
+     * @param path 纹理文件路径。
+     * @return 无返回值。
+     * @note 阶段：资源导入阶段（编辑器交互）。
+     */
     void AddTextureFromFile(const std::wstring& path);
 
     // Viewport (child window hosting swapchain)
     HWND ViewportHwnd = nullptr;
+    /**
+     * @brief 视口窗口过程（交换链宿主子窗口）。
+     * @param hwnd 视口窗口句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：运行时视口输入处理阶段。
+     */
     static LRESULT CALLBACK ViewportWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    /**
+     * @brief 处理视口窗口的消息。
+     * @param hwnd 视口窗口句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：运行时视口交互阶段。
+     */
     LRESULT HandleViewportMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    /**
+     * @brief 侧边栏窗口过程（拖拽放置对象）。
+     * @param hwnd 侧边栏控件句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：编辑器交互阶段。
+     */
     static LRESULT CALLBACK SidebarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    /**
+     * @brief 材质列表窗口过程（拖拽材质到场景）。
+     * @param hwnd 材质列表控件句柄。
+     * @param msg 消息类型。
+     * @param wParam 消息参数。
+     * @param lParam 消息参数。
+     * @return LRESULT 消息处理结果。
+     * @note 阶段：编辑器交互阶段。
+     */
     static LRESULT CALLBACK MaterialWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     // Scene

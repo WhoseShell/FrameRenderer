@@ -74,6 +74,12 @@ SamplerState g_samp : register(s0);
 
 #include "pbr_common.hlsl"
 
+/**
+ * @brief 哈希函数，用于随机种子扰动。
+ * @param x 输入值。
+ * @return 哈希后的值。
+ * @note 阶段：随机序列生成阶段。
+ */
 uint Hash(uint x)
 {
     x ^= x >> 16;
@@ -84,12 +90,25 @@ uint Hash(uint x)
     return x;
 }
 
+/**
+ * @brief 生成 [0,1) 随机数。
+ * @param seed 输入/输出随机种子。
+ * @return 随机浮点数。
+ * @note 阶段：随机采样阶段。
+ */
 float Rand01(inout uint seed)
 {
     seed = Hash(seed);
     return (seed & 0x00FFFFFFu) / 16777216.0;
 }
 
+/**
+ * @brief 构建法线空间正交基。
+ * @param N 法线方向。
+ * @param T 输出切线方向。
+ * @param B 输出副切线方向。
+ * @note 阶段：采样方向生成阶段。
+ */
 void MakeBasis(float3 N, out float3 T, out float3 B)
 {
     float3 up = (abs(N.y) < 0.999) ? float3(0, 1, 0) : float3(1, 0, 0);
@@ -97,6 +116,13 @@ void MakeBasis(float3 N, out float3 T, out float3 B)
     B = normalize(cross(N, T));
 }
 
+/**
+ * @brief 余弦加权半球采样方向。
+ * @param N 法线方向。
+ * @param seed 输入/输出随机种子。
+ * @return 采样方向。
+ * @note 阶段：GI 采样阶段。
+ */
 float3 SampleHemisphereCos(float3 N, inout uint seed)
 {
     float r1 = Rand01(seed);
@@ -112,6 +138,12 @@ float3 SampleHemisphereCos(float3 N, inout uint seed)
     return normalize(T * L.x + B * L.y + N * L.z);
 }
 
+/**
+ * @brief 根据帧奇偶读取对象数据。
+ * @param index 对象索引。
+ * @return 对象数据。
+ * @note 阶段：SWRT 场景读取阶段。
+ */
 ObjectData LoadObject(uint index)
 {
     if (g_frameParity < 0.5)
@@ -119,6 +151,17 @@ ObjectData LoadObject(uint index)
     return g_objects1[index];
 }
 
+/**
+ * @brief 射线与球体相交测试。
+ * @param ro 射线起点。
+ * @param rd 射线方向。
+ * @param c 球心。
+ * @param r 半径。
+ * @param t 输出命中距离。
+ * @param n 输出法线。
+ * @return 是否命中。
+ * @note 阶段：SWRT 碰撞测试阶段。
+ */
 bool RaySphere(float3 ro, float3 rd, float3 c, float r, out float t, out float3 n)
 {
     float3 oc = ro - c;
@@ -138,6 +181,17 @@ bool RaySphere(float3 ro, float3 rd, float3 c, float r, out float t, out float3 
     return true;
 }
 
+/**
+ * @brief 射线与 AABB 相交测试。
+ * @param ro 射线起点。
+ * @param rd 射线方向。
+ * @param bmin 包围盒最小点。
+ * @param bmax 包围盒最大点。
+ * @param t 输出命中距离。
+ * @param n 输出法线。
+ * @return 是否命中。
+ * @note 阶段：SWRT 碰撞测试阶段。
+ */
 bool RayAabb(float3 ro, float3 rd, float3 bmin, float3 bmax, out float t, out float3 n)
 {
     float3 invD = 1.0 / rd;
@@ -163,6 +217,15 @@ bool RayAabb(float3 ro, float3 rd, float3 bmin, float3 bmax, out float t, out fl
     return true;
 }
 
+/**
+ * @brief 命中点着色（PBR + IBL）。
+ * @param hitPos 命中位置。
+ * @param hitN 命中法线。
+ * @param toViewer 指向观察者方向。
+ * @param obj 对象材质数据。
+ * @return 命中点辐射度。
+ * @note 阶段：SWRT 命中着色阶段。
+ */
 float3 ShadeHit(float3 hitPos, float3 hitN, float3 toViewer, ObjectData obj)
 {
     float3 V = normalize(toViewer);
@@ -173,6 +236,11 @@ float3 ShadeHit(float3 hitPos, float3 hitN, float3 toViewer, ObjectData obj)
 }
 
 [numthreads(8, 8, 1)]
+/**
+ * @brief 构建表面缓存（GBuffer 缩小采样）。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：SWRT 表面缓存阶段。
+ */
 void CSSWRTSurfaceCache(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h;
@@ -180,6 +248,7 @@ void CSSWRTSurfaceCache(uint3 tid : SV_DispatchThreadID)
     if (tid.x >= w || tid.y >= h)
         return;
 
+    // 采样 GBuffer 并写入表面缓存。
     float2 uv = (float2(tid.xy) + 0.5) * g_invGIResolution;
     float4 gb0 = g_gbuffer0.SampleLevel(g_samp, uv, 0);
     float4 gb1 = g_gbuffer1.SampleLevel(g_samp, uv, 0);
@@ -188,6 +257,11 @@ void CSSWRTSurfaceCache(uint3 tid : SV_DispatchThreadID)
 }
 
 [numthreads(8, 8, 1)]
+/**
+ * @brief SWRT GI 主计算 Pass。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：SWRT GI 计算阶段。
+ */
 void CSSWRTGI(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h;
@@ -209,6 +283,7 @@ void CSSWRTGI(uint3 tid : SV_DispatchThreadID)
     const float ao = isValid ? saturate(g_gbuffer2.SampleLevel(g_samp, uv, 0).a) : 0.0;
     const float depth = isValid ? max(length(posW - g_cameraPosWs), 1e-3) : 0.0;
 
+    // 交错更新历史，降低成本。
     if (g_historyValid > 0.5)
     {
         uint phase = (uint)g_frameIndex & 3u;
@@ -233,11 +308,13 @@ void CSSWRTGI(uint3 tid : SV_DispatchThreadID)
         }
     }
 
+    // 追踪间接光。
     float3 indirect = float3(0.0, 0.0, 0.0);
     if (isValid)
     {
         uint seed = Hash(tid.x + (tid.y << 16) + (uint)(g_frameIndex * 1664525.0));
         const int rayCount = max(1, (int)round(g_raysPerPixel));
+        // 多条光线采样。
         [loop]
         for (int r = 0; r < rayCount; ++r)
         {
@@ -248,6 +325,7 @@ void CSSWRTGI(uint3 tid : SV_DispatchThreadID)
             bool hit = false;
 
             const uint objCount = (uint)g_objectCount;
+            // 遍历对象进行简化相交测试。
             [loop]
             for (uint i = 0; i < objCount; ++i)
             {
@@ -314,6 +392,7 @@ void CSSWRTGI(uint3 tid : SV_DispatchThreadID)
 
     float3 accum = indirect;
     float wHist = (g_historyValid > 0.5) ? saturate(g_temporalWeight) : 0.0;
+    // 时序重投影与滤除。
     if (isValid && wHist > 0.0)
     {
         float4 clipPrev = mul(float4(posW, 1.0), g_prevViewProj);
@@ -342,6 +421,7 @@ void CSSWRTGI(uint3 tid : SV_DispatchThreadID)
         }
     }
 
+    // 写回历史与元数据。
     const bool write0 = (g_frameParity < 0.5);
     if (write0)
     {
@@ -356,6 +436,11 @@ void CSSWRTGI(uint3 tid : SV_DispatchThreadID)
 }
 
 [numthreads(8, 8, 1)]
+/**
+ * @brief 双边滤波 SWRT GI 结果。
+ * @param tid Dispatch 线程 ID。
+ * @note 阶段：SWRT GI 滤波阶段。
+ */
 void CSSWRTFilter(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h;
@@ -378,6 +463,7 @@ void CSSWRTFilter(uint3 tid : SV_DispatchThreadID)
     float3 sum = float3(0.0, 0.0, 0.0);
     float wsum = 0.0;
 
+    // 5x5 邻域双边权重累积。
     [unroll]
     for (int oy = -2; oy <= 2; ++oy)
     {

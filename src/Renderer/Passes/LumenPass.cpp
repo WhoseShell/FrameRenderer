@@ -6,15 +6,25 @@
 #include "Core/Diagnostics.h"
 #include "Renderer/RenderGraph.h"
 
+/**
+ * @brief 初始化 Lumen（屏幕空间 GI）通道。
+ * @param rhi 渲染硬件接口。
+ * @param blend 混合状态描述。
+ * @param rast 光栅化状态描述。
+ * @return 无返回值。
+ * @note 阶段：Lumen 通道初始化阶段。
+ */
 void FSimpleSceneRenderer::InitLumenPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& blend, const D3D12_RASTERIZER_DESC& rast)
 {
     ID3D12Device* device = rhi.GetDevice();
     if (!device) return;
 
+    // 编译 Lumen Shader。
     std::wstring lumenPath = std::wstring(SHADER_DIR) + L"/lumen.hlsl";
     auto vsL = CompileShaderFromFile(lumenPath, "VSFullscreen", "vs_5_0");
     auto psL = CompileShaderFromFile(lumenPath, "PSLumen", "ps_5_0");
 
+    // RootSignature：常量缓冲 + GBuffer SRV。
     D3D12_ROOT_PARAMETER paramsL[2]{};
     paramsL[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     paramsL[0].Descriptor.ShaderRegister = 0;
@@ -66,6 +76,7 @@ void FSimpleSceneRenderer::InitLumenPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC&
     ThrowIfFailed(device->CreateRootSignature(0, sigL->GetBufferPointer(), sigL->GetBufferSize(), IID_PPV_ARGS(&LumenRootSig)),
                   "CreateRootSignature (lumen) failed");
 
+    // 创建 Lumen PSO（HDR + History）。
     D3D12_BLEND_DESC blendLumen = blend;
     blendLumen.IndependentBlendEnable = TRUE;
     // RT0 (HDR): additive
@@ -96,6 +107,19 @@ void FSimpleSceneRenderer::InitLumenPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC&
     ThrowIfFailed(device->CreateGraphicsPipelineState(&psoL, IID_PPV_ARGS(&LumenPSO)), "CreateGraphicsPipelineState (lumen) failed");
 }
 
+/**
+ * @brief 更新 Lumen 常量缓冲参数。
+ * @param rhi 渲染硬件接口。
+ * @param bUseLumen 是否启用 Lumen。
+ * @param curViewProj 当前视图投影矩阵。
+ * @param cameraPosWs 相机世界位置。
+ * @param lightDirWs 光源方向。
+ * @param sunIntensity 太阳强度。
+ * @param timeSeconds 当前时间（秒）。
+ * @param frameIndex 帧索引。
+ * @return 无返回值。
+ * @note 阶段：Lumen 参数更新阶段。
+ */
 void FSimpleSceneRenderer::UpdateLumenCB(
     FD3D12RHI& rhi,
     bool bUseLumen,
@@ -112,6 +136,7 @@ void FSimpleSceneRenderer::UpdateLumenCB(
     const int writeIdx = int(frameIndex) & 1;
     const int prevIdx = 1 - writeIdx;
 
+    // 填充 Lumen 常量缓冲。
     FLumenCB lcb{};
     lcb.ViewProj = curViewProj;
     lcb.PrevViewProj = (bLumenHistoryValid ? PrevViewProj : curViewProj);
@@ -130,6 +155,16 @@ void FSimpleSceneRenderer::UpdateLumenCB(
     std::memcpy(CBMappedLumen[frameIndex], &lcb, sizeof(lcb));
 }
 
+/**
+ * @brief 添加 Lumen 渲染 Pass（输出 HDR + History）。
+ * @param graph 渲染图构建器。
+ * @param frame 当前帧上下文。
+ * @param vp 视口。
+ * @param sc 裁剪区域。
+ * @param hdrRtv HDR 目标 RTV。
+ * @return 无返回值。
+ * @note 阶段：Lumen 渲染阶段。
+ */
 void FSimpleSceneRenderer::AddLumenPass(
     FRenderGraphBuilder& graph,
     const FD3D12FrameContext& frame,
@@ -150,6 +185,7 @@ void FSimpleSceneRenderer::AddLumenPass(
     {
         if (!histWrite) return;
 
+        // 切换历史纹理到 RT 状态。
         if (LumenHistoryStates[writeIdx] != D3D12_RESOURCE_STATE_RENDER_TARGET)
         {
             D3D12_RESOURCE_BARRIER b{};
@@ -184,6 +220,7 @@ void FSimpleSceneRenderer::AddLumenPass(
     graph.AddPass("LumenHistoryToSRV", [=, this](ID3D12GraphicsCommandList* cl)
     {
         if (!histWrite) return;
+        // 将历史纹理切回 SRV。
         if (LumenHistoryStates[writeIdx] == D3D12_RESOURCE_STATE_RENDER_TARGET)
         {
             D3D12_RESOURCE_BARRIER b{};
