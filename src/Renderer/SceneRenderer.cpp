@@ -200,7 +200,7 @@ void FSceneRenderer::Render()
 
         const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
         cl->ClearRenderTargetView(hdrRtv, clearColor, 0, nullptr);
-        cl->ClearDepthStencilView(Frame.DSV, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+        cl->ClearDepthStencilView(Frame.DSV, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     });
 
     // 天空、阴影等前置 Pass。
@@ -210,9 +210,17 @@ void FSceneRenderer::Render()
     Renderer.AddSkyPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv, skyEnabled);
 
     // 路径相关渲染。
-    RenderPath(graph, hdrRtv);
+    const bool renderDocRockMode = Renderer.IsRenderDocRockLoaded();
+    if (renderDocRockMode)
+    {
+        Renderer.AddRenderDocRockPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv);
+    }
+    else
+    {
+        RenderPath(graph, hdrRtv);
+    }
 
-    if (hasSelection && Renderer.GizmoMapped)
+    if (!renderDocRockMode && hasSelection && Renderer.GizmoMapped)
     {
         // Gizmo 可视化 Pass。
         // Gizmo vertices are in local-space around origin; world-aligned via gizmo CB (translation only).

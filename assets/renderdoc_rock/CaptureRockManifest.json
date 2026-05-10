@@ -1,0 +1,126 @@
+{
+  "name": "renderdoc_rock_event_16731",
+  "source_capture": "C:/Users/hsx54/Desktop/water2-high.rdc",
+  "source_manifest": "C:/Users/hsx54/Documents/RDC/assets/CaptureLocalSceneManifest.json",
+  "event": {
+    "event_id": 16731,
+    "draw_id": 1197,
+    "name": "draw_16731",
+    "material_model": "OpaqueLit",
+    "mesh_mode": "ia_world",
+    "topology": "TriangleList",
+    "index_count": 5712,
+    "vertex_count": 1009,
+    "flags": ["Drawcall", "Indexed", "Indirect", "Instanced"]
+  },
+  "coordinate_system": {
+    "capture_up_axis": "Z",
+    "engine_up_axis": "Y",
+    "position_transform": "engine = (capture - capture_bounds_center).xzy",
+    "normal_transform": "engine = normalize(capture.xzy)"
+  },
+  "mesh": {
+    "positions": "meshes/16731_positions.bin",
+    "normals": "meshes/16731_normals.bin",
+    "uv0": "meshes/16731_uv0.bin",
+    "color0": "meshes/16731_color0.bin",
+    "color1": "meshes/16731_color1.bin",
+    "indices": "meshes/16731_indices.bin",
+    "index_format": "R32_UINT",
+    "vertex_count": 1009,
+    "index_count": 5712,
+    "bounds_min_capture": [2342.705032345035, 471.552391554902, -131.51547833462132],
+    "bounds_max_capture": [2345.065737151751, 474.00663205800737, -129.3094809076139]
+  },
+  "lighting": {
+    "sun_direction_engine": [0.9689294495469591, -0.20260680549176144, 0.14186685366585988],
+    "sun_color": [1.0, 0.96, 0.88],
+    "sun_intensity": 8.0,
+    "ambient_intensity": 0.28
+  },
+  "material": {
+    "roughness": 0.82,
+    "metallic": 0.0,
+    "normal_strength": 0.18,
+    "base_color_boost": 1.25,
+    "texture_slots": [
+      {
+        "slot": 0,
+        "register": "t0",
+        "role": "base_color",
+        "resource_id": 102495,
+        "original_bind_point": 13,
+        "original_table_index": 3,
+        "path": "textures/102495.dds"
+      },
+      {
+        "slot": 1,
+        "register": "t1",
+        "role": "normal",
+        "resource_id": 102493,
+        "original_bind_point": 89,
+        "original_table_index": 5,
+        "path": "textures/102493.dds"
+      },
+      {
+        "slot": 2,
+        "register": "t2",
+        "role": "material_mask_a",
+        "resource_id": 102499,
+        "original_bind_point": 90,
+        "original_table_index": 6,
+        "path": "textures/102499.dds"
+      },
+      {
+        "slot": 3,
+        "register": "t3",
+        "role": "material_mask_b",
+        "resource_id": 102497,
+        "original_bind_point": 91,
+        "original_table_index": 7,
+        "path": "textures/102497.dds"
+      },
+      {
+        "slot": 4,
+        "register": "t4",
+        "role": "aux_15308",
+        "resource_id": 15308,
+        "original_bind_point": 32,
+        "original_table_index": 6,
+        "path": "textures/15308.dds"
+      },
+      {
+        "slot": 5,
+        "register": "t5",
+        "role": "aux_20264",
+        "resource_id": 20264,
+        "original_bind_point": 88,
+        "original_table_index": 4,
+        "path": "textures/20264.dds"
+      },
+      {
+        "slot": 6,
+        "register": "t6",
+        "role": "aux_2597",
+        "resource_id": 2597,
+        "original_bind_point": 102,
+        "original_table_index": 7,
+        "path": "textures/2597.dds"
+      },
+      {
+        "slot": 7,
+        "register": "t7",
+        "role": "aux_2592",
+        "resource_id": 2592,
+        "original_bind_point": 39,
+        "original_table_index": 1,
+        "path": "textures/2592.dds"
+      }
+    ]
+  },
+  "original_shaders": {
+    "vertex_shader_blob": "shaders/vertex_1000000000000001108.bin",
+    "pixel_shader_blob": "shaders/pixel_1000000000000001434.bin",
+    "runtime_source_equivalent": "shaders/renderdoc_rock.hlsl"
+  }
+}

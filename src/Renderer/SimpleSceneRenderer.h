@@ -9,6 +9,7 @@
 
 #include "Core/Types.h"
 #include "Math/Camera.h"
+#include "RenderDoc/CaptureRockRenderer.h"
 #include "RHI/D3D12RHI.h"
 #include "Renderer/MeshGeneration.h"
 #include "Scene/SceneTypes.h"
@@ -83,6 +84,7 @@ public:
      * @note 阶段：初始化后能力查询阶段。
      */
     D3D12_RAYTRACING_TIER GetRaytracingTier() const { return RaytracingTier; }
+    bool IsRenderDocRockLoaded() const { return RenderDocRockRenderer.IsLoaded(); }
 
     // Returns renderer texture slot (0 = built-in white).
     /**
@@ -200,6 +202,7 @@ private:
     void InitLumenSwrtPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& blend, const D3D12_RASTERIZER_DESC& rast);
     void InitHWRTGIPass(FD3D12RHI& rhi, const D3D12_BLEND_DESC& blend, const D3D12_RASTERIZER_DESC& rast);
     void InitShadowPass(FD3D12RHI& rhi, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& basePso, const D3D12_RASTERIZER_DESC& rast);
+    void InitRenderDocRockRenderer(FD3D12RHI& rhi);
 
     void UpdateSkyCB(const DirectX::XMMATRIX& invViewProj, const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs,
                      float sunIntensity, const FSkyAtmosphereSettings& sky, uint32 frameIndex);
@@ -231,6 +234,12 @@ private:
                             D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv, uint32 objectCount);
     void AddLumenPass(FRenderGraphBuilder& graph, const FD3D12FrameContext& frame, const D3D12_VIEWPORT& vp, const D3D12_RECT& sc,
                       D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv);
+    void AddRenderDocRockPass(
+        FRenderGraphBuilder& graph,
+        const FD3D12FrameContext& frame,
+        const D3D12_VIEWPORT& vp,
+        const D3D12_RECT& sc,
+        D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv);
     void AddHDRToSRVPass(FRenderGraphBuilder& graph);
     void AddTonemapPass(FRenderGraphBuilder& graph, const FD3D12FrameContext& frame, const D3D12_VIEWPORT& vp, const D3D12_RECT& sc);
 
@@ -552,6 +561,8 @@ private:
     uint32 HWRTGICBSize = 0;
     bool bHWRTGIReady = false;
     std::wstring HWRTGIInitError;
+
+    rdcimport::FCaptureRockRenderer RenderDocRockRenderer;
 
     ComPtr<ID3D12Resource> GizmoVB;
     D3D12_VERTEX_BUFFER_VIEW GizmoVBView{};

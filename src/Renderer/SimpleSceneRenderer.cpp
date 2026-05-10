@@ -18,6 +18,10 @@
 #define SHADER_DIR L"."
 #endif
 
+#ifndef ASSET_DIR
+#define ASSET_DIR L"assets"
+#endif
+
 namespace
 {
 /**
@@ -1202,6 +1206,22 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
     }
 
     EnsureHDRTargets(rhi);
+    InitRenderDocRockRenderer(rhi);
+}
+
+void FSimpleSceneRenderer::InitRenderDocRockRenderer(FD3D12RHI& rhi)
+{
+    std::string error;
+    const std::filesystem::path manifestPath = std::filesystem::path(ASSET_DIR) / L"renderdoc_rock" / L"CaptureRockManifest.json";
+    const std::filesystem::path shaderPath = std::filesystem::path(SHADER_DIR) / L"renderdoc_rock.hlsl";
+    if (RenderDocRockRenderer.Initialize(rhi, HDRFormat, rhi.GetDepthFormat(), manifestPath, shaderPath, &error))
+    {
+        DebugOutput(L"RenderDoc rock renderer loaded: " + RenderDocRockRenderer.FormatSummary());
+    }
+    else
+    {
+        DebugOutput(L"RenderDoc rock renderer not loaded: " + std::wstring(error.begin(), error.end()));
+    }
 }
 
 /**
@@ -1210,8 +1230,36 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
  * @return 无返回值。
  * @note 阶段：渲染销毁阶段。
  */
+void FSimpleSceneRenderer::AddRenderDocRockPass(
+    FRenderGraphBuilder& graph,
+    const FD3D12FrameContext& frame,
+    const D3D12_VIEWPORT& vp,
+    const D3D12_RECT& sc,
+    D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv)
+{
+    if (!RenderDocRockRenderer.IsLoaded())
+    {
+        return;
+    }
+
+    rdcimport::FCaptureRockFrameInputs inputs{};
+    inputs.TargetRTV = hdrRtv;
+    inputs.DepthDSV = frame.DSV;
+    inputs.Viewport = vp;
+    inputs.Scissor = sc;
+    inputs.FrameIndex = frame.FrameIndex;
+
+    auto* rock = &RenderDocRockRenderer;
+    graph.AddPass("RenderDocRock", [rock, inputs](ID3D12GraphicsCommandList* cl)
+    {
+        rock->Render(cl, inputs);
+    });
+}
+
 void FSimpleSceneRenderer::Shutdown()
 {
+    RenderDocRockRenderer.Reset();
+
     // 解除 Gizmo 顶点缓冲映射。
     if (GizmoVB && GizmoMapped)
         GizmoVB->Unmap(0, nullptr);

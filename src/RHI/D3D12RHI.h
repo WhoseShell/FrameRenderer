@@ -127,9 +127,19 @@ public:
      * @return DXGI_FORMAT 深度缓冲格式。
      * @note 阶段：深度资源创建阶段。
      */
-    DXGI_FORMAT GetDepthFormat() const { return DXGI_FORMAT_D32_FLOAT; }
+    DXGI_FORMAT GetDepthFormat() const { return DXGI_FORMAT_D32_FLOAT_S8X24_UINT; }
 
 private:
+    struct FPendingBackBufferCapture
+    {
+        ComPtr<ID3D12Resource> Readback;
+        std::wstring Path;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT Footprint{};
+        uint32 Width = 0;
+        uint32 Height = 0;
+        bool Valid = false;
+    };
+
     /**
      * @brief 创建交换链的 RTV 资源与视图。
      * @param 无。
@@ -144,6 +154,8 @@ private:
      * @note 阶段：深度资源初始化/重建阶段。
      */
     void CreateDepthResources();
+    FPendingBackBufferCapture TryQueueBackBufferCapture();
+    void SaveBackBufferCapture(const FPendingBackBufferCapture& capture);
     /**
      * @brief 翻转到下一帧并进行 GPU 同步。
      * @param 无。
@@ -177,6 +189,9 @@ private:
     uint64 FenceValue[kFrameCount] = {};
     HANDLE FenceEvent = nullptr;
     uint32 FrameIndex = 0;
+    uint64 PresentedFrameCounter = 0;
+    bool BackBufferCaptureDone = false;
+    std::wstring BackBufferCaptureDonePath;
 
     FD3D12FrameContext CurrentFrame{};
 };

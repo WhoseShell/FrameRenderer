@@ -1,8 +1,68 @@
 #include "RHI/D3D12RHI.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
+#include <vector>
 
 #include "Core/Diagnostics.h"
+
+namespace
+{
+std::wstring ReadEnvWide(const wchar_t* name)
+{
+    wchar_t buffer[4096]{};
+    const DWORD len = GetEnvironmentVariableW(name, buffer, static_cast<DWORD>(std::size(buffer)));
+    if (len == 0 || len >= std::size(buffer))
+    {
+        return {};
+    }
+    return std::wstring(buffer, len);
+}
+
+uint64 ReadEnvUInt64(const wchar_t* name, uint64 fallback)
+{
+    wchar_t buffer[64]{};
+    const DWORD len = GetEnvironmentVariableW(name, buffer, static_cast<DWORD>(std::size(buffer)));
+    if (len == 0 || len >= std::size(buffer))
+    {
+        return fallback;
+    }
+
+    wchar_t* end = nullptr;
+    const unsigned long long parsed = std::wcstoull(buffer, &end, 10);
+    return end != buffer ? static_cast<uint64>(parsed) : fallback;
+}
+
+#pragma pack(push, 1)
+struct FBmpFileHeader
+{
+    uint16_t Type = 0x4D42;
+    uint32_t Size = 0;
+    uint16_t Reserved1 = 0;
+    uint16_t Reserved2 = 0;
+    uint32_t OffBits = 54;
+};
+
+struct FBmpInfoHeader
+{
+    uint32_t Size = 40;
+    int32_t Width = 0;
+    int32_t Height = 0;
+    uint16_t Planes = 1;
+    uint16_t BitCount = 24;
+    uint32_t Compression = 0;
+    uint32_t SizeImage = 0;
+    int32_t XPelsPerMeter = 2835;
+    int32_t YPelsPerMeter = 2835;
+    uint32_t ClrUsed = 0;
+    uint32_t ClrImportant = 0;
+};
+#pragma pack(pop)
+}
 
 /**
  * @brief 构造资源状态转换屏障。
@@ -296,6 +356,142 @@ void FD3D12RHI::CreateSwapchainResources()
     }
 }
 
+FD3D12RHI::FPendingBackBufferCapture FD3D12RHI::TryQueueBackBufferCapture()
+{
+    FPendingBackBufferCapture capture{};
+    if (!Device || !CmdList || !CurrentFrame.BackBuffer)
+    {
+        return capture;
+    }
+
+    const std::wstring path = ReadEnvWide(L"SHELLENGINE_CAPTURE_FRAME_PATH");
+    if (path.empty())
+    {
+        return capture;
+    }
+    if (BackBufferCaptureDone && BackBufferCaptureDonePath == path)
+    {
+        return capture;
+    }
+
+    const uint64 targetFrame = ReadEnvUInt64(L"SHELLENGINE_CAPTURE_FRAME_INDEX", 5);
+    if (PresentedFrameCounter < targetFrame)
+    {
+        return capture;
+    }
+
+    const D3D12_RESOURCE_DESC sourceDesc = CurrentFrame.BackBuffer->GetDesc();
+    UINT numRows = 0;
+    UINT64 rowSizeInBytes = 0;
+    UINT64 totalBytes = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    Device->GetCopyableFootprints(&sourceDesc, 0, 1, 0, &footprint, &numRows, &rowSizeInBytes, &totalBytes);
+
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_READBACK;
+
+    D3D12_RESOURCE_DESC readbackDesc{};
+    readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    readbackDesc.Width = (std::max<UINT64>)(1, totalBytes);
+    readbackDesc.Height = 1;
+    readbackDesc.DepthOrArraySize = 1;
+    readbackDesc.MipLevels = 1;
+    readbackDesc.SampleDesc.Count = 1;
+    readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    ThrowIfFailed(Device->CreateCommittedResource(
+        &heap,
+        D3D12_HEAP_FLAG_NONE,
+        &readbackDesc,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr,
+        IID_PPV_ARGS(&capture.Readback)),
+        "Create backbuffer capture readback failed");
+
+    D3D12_RESOURCE_BARRIER toCopy = Transition(CurrentFrame.BackBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    CmdList->ResourceBarrier(1, &toCopy);
+
+    D3D12_TEXTURE_COPY_LOCATION src{};
+    src.pResource = CurrentFrame.BackBuffer;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src.SubresourceIndex = 0;
+
+    D3D12_TEXTURE_COPY_LOCATION dst{};
+    dst.pResource = capture.Readback.Get();
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst.PlacedFootprint = footprint;
+    CmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+    D3D12_RESOURCE_BARRIER backToRenderTarget = Transition(CurrentFrame.BackBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    CmdList->ResourceBarrier(1, &backToRenderTarget);
+
+    capture.Path = path;
+    capture.Footprint = footprint;
+    capture.Width = static_cast<uint32>(sourceDesc.Width);
+    capture.Height = static_cast<uint32>(sourceDesc.Height);
+    capture.Valid = true;
+    return capture;
+}
+
+void FD3D12RHI::SaveBackBufferCapture(const FPendingBackBufferCapture& capture)
+{
+    if (!capture.Valid || !capture.Readback || capture.Path.empty() || capture.Width == 0 || capture.Height == 0)
+    {
+        return;
+    }
+
+    void* mapped = nullptr;
+    ThrowIfFailed(capture.Readback->Map(0, nullptr, &mapped), "Map backbuffer capture readback failed");
+    const uint8_t* pixels = reinterpret_cast<const uint8_t*>(mapped) + capture.Footprint.Offset;
+    const uint32_t sourcePitch = capture.Footprint.Footprint.RowPitch;
+    const uint32_t rowBytes = ((capture.Width * 3u) + 3u) & ~3u;
+    const uint32_t imageBytes = rowBytes * capture.Height;
+
+    std::filesystem::path outputPath(capture.Path);
+    std::error_code ec;
+    if (!outputPath.parent_path().empty())
+    {
+        std::filesystem::create_directories(outputPath.parent_path(), ec);
+    }
+
+    std::ofstream out(outputPath, std::ios::binary);
+    if (!out)
+    {
+        capture.Readback->Unmap(0, nullptr);
+        DebugOutput(L"Backbuffer capture failed to open output: " + outputPath.wstring());
+        return;
+    }
+
+    FBmpFileHeader fileHeader{};
+    FBmpInfoHeader infoHeader{};
+    infoHeader.Width = static_cast<int32_t>(capture.Width);
+    infoHeader.Height = static_cast<int32_t>(capture.Height);
+    infoHeader.SizeImage = imageBytes;
+    fileHeader.Size = fileHeader.OffBits + imageBytes;
+
+    out.write(reinterpret_cast<const char*>(&fileHeader), sizeof(fileHeader));
+    out.write(reinterpret_cast<const char*>(&infoHeader), sizeof(infoHeader));
+
+    std::vector<uint8_t> row(rowBytes, 0);
+    for (int y = static_cast<int>(capture.Height) - 1; y >= 0; --y)
+    {
+        const uint8_t* src = pixels + static_cast<size_t>(y) * sourcePitch;
+        std::fill(row.begin(), row.end(), uint8_t{0});
+        for (uint32 x = 0; x < capture.Width; ++x)
+        {
+            const uint8_t r = src[x * 4u + 0u];
+            const uint8_t g = src[x * 4u + 1u];
+            const uint8_t b = src[x * 4u + 2u];
+            row[x * 3u + 0u] = b;
+            row[x * 3u + 1u] = g;
+            row[x * 3u + 2u] = r;
+        }
+        out.write(reinterpret_cast<const char*>(row.data()), row.size());
+    }
+    capture.Readback->Unmap(0, nullptr);
+    DebugOutput(L"Backbuffer capture saved: " + outputPath.wstring());
+}
+
 /**
  * @brief 创建深度缓冲资源与 DSV。
  * @param 无。
@@ -385,6 +581,8 @@ FD3D12FrameContext FD3D12RHI::BeginFrame()
  */
 void FD3D12RHI::EndFrame()
 {
+    FPendingBackBufferCapture pendingCapture = TryQueueBackBufferCapture();
+
     // 切回 Present 状态。
     auto toPresent = Transition(CurrentFrame.BackBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
     CmdList->ResourceBarrier(1, &toPresent);
@@ -396,6 +594,15 @@ void FD3D12RHI::EndFrame()
 
     ThrowIfFailed(Swapchain->Present(1, 0), "Present failed");
     MoveToNextFrame();
+    ++PresentedFrameCounter;
+
+    if (pendingCapture.Valid)
+    {
+        WaitForGPU();
+        SaveBackBufferCapture(pendingCapture);
+        BackBufferCaptureDone = true;
+        BackBufferCaptureDonePath = pendingCapture.Path;
+    }
 }
 
 /**
