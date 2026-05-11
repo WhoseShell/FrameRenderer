@@ -91,7 +91,20 @@ private:
     FInputState Input;
     FCamera Camera;
 
+    HFONT UIFont = nullptr;
+    HFONT UITitleFont = nullptr;
+
     // Sidebar UI (Win32 controls)
+    HWND ToolbarPanel = nullptr;
+    HWND ToolbarTitle = nullptr;
+    HWND ToolbarNewLevelBtn = nullptr;
+    HWND ToolbarOpenLevelBtn = nullptr;
+    HWND ToolbarSaveLevelBtn = nullptr;
+    HWND ToolbarImportObjBtn = nullptr;
+    HWND ToolbarPlaceBtn = nullptr;
+    HWND StatusLabel = nullptr;
+    static constexpr int TopToolbarHeightPx = 36;
+
     HWND EngineNameLabel = nullptr;
     HWND SidebarList = nullptr;
     static constexpr int SidebarWidthPx = 200;
@@ -126,7 +139,12 @@ private:
 
     // Bottom assets/materials panel
     HWND BottomPanel = nullptr;
-    static constexpr int BottomPanelHeightPx = 180;
+    static constexpr int BottomPanelHeightPx = 210;
+    HWND ContentTitleLabel = nullptr;
+    HWND TextureTitleLabel = nullptr;
+    HWND PreviewTitleLabel = nullptr;
+    HWND MaterialTitleLabel = nullptr;
+    HWND ContentHintLabel = nullptr;
     HWND ContentList = nullptr;
     HWND ImportObjBtn = nullptr;
     HWND PlaceAssetBtn = nullptr;
@@ -249,6 +267,8 @@ private:
     void RefreshContentBrowser();
     void RefreshOutliner();
     void RefreshDetailsPanel();
+    void UpdateStatusText();
+    void ApplyEditorFont(HWND hwnd, bool title = false);
     void SetSelectedIndex(int index);
     void MarkLevelDirty();
     void UpdateWindowTitle(const wchar_t* baseTitle, const wchar_t* pathName);
@@ -361,6 +381,9 @@ private:
     HWND OutlinerLabel = nullptr;
     HWND OutlinerList = nullptr;
     HWND DetailsLabel = nullptr;
+    HWND DetailNameLabel = nullptr;
+    HWND DetailPositionLabel = nullptr;
+    HWND DetailScaleLabel = nullptr;
     HWND DetailNameEdit = nullptr;
     HWND DetailPosXEdit = nullptr;
     HWND DetailPosYEdit = nullptr;

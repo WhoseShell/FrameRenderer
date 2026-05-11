@@ -25,6 +25,11 @@ constexpr int IDC_PLACE_ASSET = 5003;
 constexpr int IDC_NEW_LEVEL = 5004;
 constexpr int IDC_OPEN_LEVEL = 5005;
 constexpr int IDC_SAVE_LEVEL = 5006;
+constexpr int IDC_TOOLBAR_NEW_LEVEL = 5007;
+constexpr int IDC_TOOLBAR_OPEN_LEVEL = 5008;
+constexpr int IDC_TOOLBAR_SAVE_LEVEL = 5009;
+constexpr int IDC_TOOLBAR_IMPORT_OBJ = 5010;
+constexpr int IDC_TOOLBAR_PLACE = 5011;
 constexpr int IDC_OUTLINER_LIST = 5101;
 constexpr int IDC_APPLY_DETAILS = 5201;
 
@@ -1303,7 +1308,17 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             ImportObjFromDialog();
             return 0;
         }
+        if ((HWND)lParam == ToolbarImportObjBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            ImportObjFromDialog();
+            return 0;
+        }
         if ((HWND)lParam == PlaceAssetBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            PlaceSelectedContentAsset();
+            return 0;
+        }
+        if ((HWND)lParam == ToolbarPlaceBtn && HIWORD(wParam) == BN_CLICKED)
         {
             PlaceSelectedContentAsset();
             return 0;
@@ -1313,12 +1328,27 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             NewLevel();
             return 0;
         }
+        if ((HWND)lParam == ToolbarNewLevelBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            NewLevel();
+            return 0;
+        }
         if ((HWND)lParam == OpenLevelBtn && HIWORD(wParam) == BN_CLICKED)
         {
             OpenLevelFromDialog();
             return 0;
         }
+        if ((HWND)lParam == ToolbarOpenLevelBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            OpenLevelFromDialog();
+            return 0;
+        }
         if ((HWND)lParam == SaveLevelBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            SaveCurrentLevel(false);
+            return 0;
+        }
+        if ((HWND)lParam == ToolbarSaveLevelBtn && HIWORD(wParam) == BN_CLICKED)
         {
             SaveCurrentLevel(false);
             return 0;
@@ -1640,6 +1670,7 @@ void FEngine::RefreshContentBrowser()
         const std::wstring label = DisplayAssetKind(asset.Kind) + asset.RelativePath;
         SendMessageW(ContentList, LB_ADDSTRING, 0, (LPARAM)label.c_str());
     }
+    UpdateStatusText();
 }
 
 void FEngine::RefreshOutliner()
@@ -1658,6 +1689,7 @@ void FEngine::RefreshOutliner()
     if (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size())
         SendMessageW(OutlinerList, LB_SETCURSEL, (WPARAM)SelectedIndex, 0);
     bSuppressOutlinerEvents = false;
+    UpdateStatusText();
 }
 
 void FEngine::RefreshDetailsPanel()
@@ -1693,6 +1725,31 @@ void FEngine::RefreshDetailsPanel()
     setFloat(DetailScaleXEdit, object.Scale.x);
     setFloat(DetailScaleYEdit, object.Scale.y);
     setFloat(DetailScaleZEdit, object.Scale.z);
+    UpdateStatusText();
+}
+
+void FEngine::UpdateStatusText()
+{
+    if (!StatusLabel)
+        return;
+
+    std::wstring text = L"Level: " + (CurrentLevelName.empty() ? L"Untitled" : CurrentLevelName);
+    if (bLevelDirty)
+        text += L" *";
+    text += L"    Objects: " + std::to_wstring(Objects.size());
+    text += L"    Assets: " + std::to_wstring(ContentAssets.size());
+    if (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size())
+        text += L"    Selected: " + Objects[(size_t)SelectedIndex].Name;
+    else
+        text += L"    Selected: none";
+    SetWindowTextW(StatusLabel, text.c_str());
+}
+
+void FEngine::ApplyEditorFont(HWND hwnd, bool title)
+{
+    if (!hwnd)
+        return;
+    SendMessageW(hwnd, WM_SETFONT, (WPARAM)(title ? UITitleFont : UIFont), TRUE);
 }
 
 void FEngine::SetSelectedIndex(int index)
@@ -1705,6 +1762,7 @@ void FEngine::SetSelectedIndex(int index)
 void FEngine::MarkLevelDirty()
 {
     bLevelDirty = true;
+    UpdateStatusText();
 }
 
 void FEngine::UpdateWindowTitle(const wchar_t* baseTitle, const wchar_t* pathName)
@@ -1732,6 +1790,7 @@ void FEngine::NewLevel()
     Objects.clear();
     StaticMeshByAsset.clear();
     StaticMeshRadiusByAsset.clear();
+    NextObjectId = 1;
     CurrentLevelPath.clear();
     CurrentLevelName = L"Untitled";
     bLevelDirty = false;
@@ -2404,17 +2463,38 @@ void FEngine::LayoutUI()
     const int clientW = (int)(rc.right - rc.left);
     const int clientH = (int)(rc.bottom - rc.top);
     const int viewportW = std::max(1, clientW - SidebarWidthPx - RightPanelWidthPx);
-    const int viewportH = std::max(1, clientH - BottomPanelHeightPx);
+    const int viewportH = std::max(1, clientH - TopToolbarHeightPx - BottomPanelHeightPx);
 
     const int sidebarH = viewportH;
     const int titleH = 22;
     const int paletteH = std::min(120, sidebarH);
 
     // 顶部标题与物体列表区域。
+    if (ToolbarPanel)
+        MoveWindow(ToolbarPanel, 0, 0, clientW, TopToolbarHeightPx, TRUE);
+    if (ToolbarTitle)
+        MoveWindow(ToolbarTitle, 10, 7, 190, 22, TRUE);
+    int tbX = 210;
+    auto toolbarButton = [&](HWND h, int width)
+    {
+        if (!h) return;
+        MoveWindow(h, tbX, 6, width, 24, TRUE);
+        tbX += width + 6;
+    };
+    toolbarButton(ToolbarNewLevelBtn, 72);
+    toolbarButton(ToolbarOpenLevelBtn, 76);
+    toolbarButton(ToolbarSaveLevelBtn, 76);
+    toolbarButton(ToolbarImportObjBtn, 92);
+    toolbarButton(ToolbarPlaceBtn, 72);
+    if (StatusLabel)
+        MoveWindow(StatusLabel, tbX + 10, 8, std::max(120, clientW - tbX - 18), 20, TRUE);
+
+    const int contentTop = TopToolbarHeightPx;
+
     if (EngineNameLabel)
-        MoveWindow(EngineNameLabel, 0, 0, SidebarWidthPx, titleH, TRUE);
+        MoveWindow(EngineNameLabel, 0, contentTop, SidebarWidthPx, titleH, TRUE);
     if (SidebarList)
-        MoveWindow(SidebarList, 0, titleH, SidebarWidthPx, std::max(1, paletteH - titleH), TRUE);
+        MoveWindow(SidebarList, 0, contentTop + titleH, SidebarWidthPx, std::max(1, paletteH - titleH), TRUE);
 
     // Sidebar controls live below the palette list (in main window coordinates).
     const int sidebarX = 0;
@@ -2425,7 +2505,7 @@ void FEngine::LayoutUI()
     auto place = [&](HWND h, int y, int hgt)
     {
         if (!h) return;
-        MoveWindow(h, sidebarX + 8, baseY + y, innerW, hgt, TRUE);
+        MoveWindow(h, sidebarX + 8, contentTop + baseY + y, innerW, hgt, TRUE);
     };
 
     place(RenderPathLabel, 0, 16);
@@ -2454,68 +2534,87 @@ void FEngine::LayoutUI()
 
     // 视口与底部面板布局。
     if (ViewportHwnd)
-        MoveWindow(ViewportHwnd, SidebarWidthPx, 0, viewportW, viewportH, TRUE);
+        MoveWindow(ViewportHwnd, SidebarWidthPx, contentTop, viewportW, viewportH, TRUE);
 
     const int rightX = SidebarWidthPx + viewportW;
     if (RightPanel)
-        MoveWindow(RightPanel, rightX, 0, RightPanelWidthPx, viewportH, TRUE);
+        MoveWindow(RightPanel, rightX, contentTop, RightPanelWidthPx, viewportH, TRUE);
     if (OutlinerLabel)
-        MoveWindow(OutlinerLabel, rightX + 8, 8, RightPanelWidthPx - 16, 18, TRUE);
+        MoveWindow(OutlinerLabel, rightX + 8, contentTop + 8, RightPanelWidthPx - 16, 18, TRUE);
     if (OutlinerList)
-        MoveWindow(OutlinerList, rightX + 8, 30, RightPanelWidthPx - 16, std::max(80, viewportH / 2 - 44), TRUE);
+        MoveWindow(OutlinerList, rightX + 8, contentTop + 30, RightPanelWidthPx - 16, std::max(80, viewportH / 2 - 44), TRUE);
     const int detailsY = std::max(120, viewportH / 2 + 4);
     if (DetailsLabel)
-        MoveWindow(DetailsLabel, rightX + 8, detailsY, RightPanelWidthPx - 16, 18, TRUE);
+        MoveWindow(DetailsLabel, rightX + 8, contentTop + detailsY, RightPanelWidthPx - 16, 18, TRUE);
+    if (DetailNameLabel)
+        MoveWindow(DetailNameLabel, rightX + 8, contentTop + detailsY + 24, RightPanelWidthPx - 16, 16, TRUE);
     if (DetailNameEdit)
-        MoveWindow(DetailNameEdit, rightX + 8, detailsY + 24, RightPanelWidthPx - 16, 22, TRUE);
+        MoveWindow(DetailNameEdit, rightX + 8, contentTop + detailsY + 42, RightPanelWidthPx - 16, 22, TRUE);
+    if (DetailPositionLabel)
+        MoveWindow(DetailPositionLabel, rightX + 8, contentTop + detailsY + 70, RightPanelWidthPx - 16, 16, TRUE);
     const int editW = (RightPanelWidthPx - 32) / 3;
     if (DetailPosXEdit)
-        MoveWindow(DetailPosXEdit, rightX + 8, detailsY + 56, editW, 22, TRUE);
+        MoveWindow(DetailPosXEdit, rightX + 8, contentTop + detailsY + 88, editW, 22, TRUE);
     if (DetailPosYEdit)
-        MoveWindow(DetailPosYEdit, rightX + 12 + editW, detailsY + 56, editW, 22, TRUE);
+        MoveWindow(DetailPosYEdit, rightX + 12 + editW, contentTop + detailsY + 88, editW, 22, TRUE);
     if (DetailPosZEdit)
-        MoveWindow(DetailPosZEdit, rightX + 16 + editW * 2, detailsY + 56, editW, 22, TRUE);
+        MoveWindow(DetailPosZEdit, rightX + 16 + editW * 2, contentTop + detailsY + 88, editW, 22, TRUE);
+    if (DetailScaleLabel)
+        MoveWindow(DetailScaleLabel, rightX + 8, contentTop + detailsY + 116, RightPanelWidthPx - 16, 16, TRUE);
     if (DetailScaleXEdit)
-        MoveWindow(DetailScaleXEdit, rightX + 8, detailsY + 86, editW, 22, TRUE);
+        MoveWindow(DetailScaleXEdit, rightX + 8, contentTop + detailsY + 134, editW, 22, TRUE);
     if (DetailScaleYEdit)
-        MoveWindow(DetailScaleYEdit, rightX + 12 + editW, detailsY + 86, editW, 22, TRUE);
+        MoveWindow(DetailScaleYEdit, rightX + 12 + editW, contentTop + detailsY + 134, editW, 22, TRUE);
     if (DetailScaleZEdit)
-        MoveWindow(DetailScaleZEdit, rightX + 16 + editW * 2, detailsY + 86, editW, 22, TRUE);
+        MoveWindow(DetailScaleZEdit, rightX + 16 + editW * 2, contentTop + detailsY + 134, editW, 22, TRUE);
     if (ApplyDetailsBtn)
-        MoveWindow(ApplyDetailsBtn, rightX + 8, detailsY + 116, RightPanelWidthPx - 16, 24, TRUE);
+        MoveWindow(ApplyDetailsBtn, rightX + 8, contentTop + detailsY + 166, RightPanelWidthPx - 16, 24, TRUE);
 
     if (BottomPanel)
-        MoveWindow(BottomPanel, 0, viewportH, clientW, BottomPanelHeightPx, TRUE);
+        MoveWindow(BottomPanel, 0, contentTop + viewportH, clientW, BottomPanelHeightPx, TRUE);
 
     if (BottomPanel)
     {
         // 计算底栏三列布局并更新控件位置。
         const int padding = 8;
         const int colW = std::max(80, (clientW - padding * 5) / 4);
-        const int listH = std::max(40, BottomPanelHeightPx - padding * 2 - 26);
+        const int titleH2 = 18;
+        const int buttonH = 24;
+        const int listY = padding + titleH2 + 4;
+        const int listH = std::max(40, BottomPanelHeightPx - padding * 2 - titleH2 - buttonH - 10);
 
+        if (ContentTitleLabel)
+            MoveWindow(ContentTitleLabel, padding, padding, colW, titleH2, TRUE);
         if (ContentList)
-            MoveWindow(ContentList, padding, padding, colW, listH, TRUE);
+            MoveWindow(ContentList, padding, listY, colW, listH, TRUE);
+        if (ContentHintLabel)
+            MoveWindow(ContentHintLabel, padding, listY + listH + 2, colW, 16, TRUE);
         if (ImportObjBtn)
-            MoveWindow(ImportObjBtn, padding, padding + listH + 4, colW / 2 - 2, 22, TRUE);
+            MoveWindow(ImportObjBtn, padding, padding + titleH2 + listH + 22, colW / 2 - 2, buttonH, TRUE);
         if (PlaceAssetBtn)
-            MoveWindow(PlaceAssetBtn, padding + colW / 2 + 2, padding + listH + 4, colW / 2 - 2, 22, TRUE);
+            MoveWindow(PlaceAssetBtn, padding + colW / 2 + 2, padding + titleH2 + listH + 22, colW / 2 - 2, buttonH, TRUE);
+        if (TextureTitleLabel)
+            MoveWindow(TextureTitleLabel, padding + colW + padding, padding, colW, titleH2, TRUE);
         if (TextureList)
-            MoveWindow(TextureList, padding + colW + padding, padding, colW, listH, TRUE);
+            MoveWindow(TextureList, padding + colW + padding, listY, colW, listH, TRUE);
+        if (PreviewTitleLabel)
+            MoveWindow(PreviewTitleLabel, padding + (colW + padding) * 2, padding, colW, titleH2, TRUE);
         if (TexturePreview)
-            MoveWindow(TexturePreview, padding + (colW + padding) * 2, padding, colW, listH, TRUE);
+            MoveWindow(TexturePreview, padding + (colW + padding) * 2, listY, colW, listH, TRUE);
+        if (MaterialTitleLabel)
+            MoveWindow(MaterialTitleLabel, padding + (colW + padding) * 3, padding, colW, titleH2, TRUE);
         if (MaterialList)
-            MoveWindow(MaterialList, padding + (colW + padding) * 3, padding, colW, listH, TRUE);
+            MoveWindow(MaterialList, padding + (colW + padding) * 3, listY, colW, listH, TRUE);
         if (NewMaterialBtn)
-            MoveWindow(NewMaterialBtn, padding + (colW + padding) * 3, padding + listH + 4, colW / 2 - 2, 22, TRUE);
+            MoveWindow(NewMaterialBtn, padding + (colW + padding) * 3, padding + titleH2 + listH + 22, colW / 2 - 2, buttonH, TRUE);
         if (TonemapCheckbox)
-            MoveWindow(TonemapCheckbox, padding + (colW + padding) * 2, padding + listH + 4, colW, 22, TRUE);
+            MoveWindow(TonemapCheckbox, padding + (colW + padding) * 2, padding + titleH2 + listH + 22, colW, buttonH, TRUE);
         if (NewLevelBtn)
-            MoveWindow(NewLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2, padding + listH + 4, (colW / 2 - 2) / 3, 22, TRUE);
+            MoveWindow(NewLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2, padding + titleH2 + listH + 22, (colW / 2 - 2) / 3, buttonH, TRUE);
         if (OpenLevelBtn)
-            MoveWindow(OpenLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + (colW / 2 - 2) / 3 + 2, padding + listH + 4, (colW / 2 - 2) / 3, 22, TRUE);
+            MoveWindow(OpenLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + (colW / 2 - 2) / 3 + 2, padding + titleH2 + listH + 22, (colW / 2 - 2) / 3, buttonH, TRUE);
         if (SaveLevelBtn)
-            MoveWindow(SaveLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + ((colW / 2 - 2) / 3 + 2) * 2, padding + listH + 4, (colW / 2 - 2) / 3, 22, TRUE);
+            MoveWindow(SaveLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + ((colW / 2 - 2) / 3 + 2) * 2, padding + titleH2 + listH + 22, (colW / 2 - 2) / 3, buttonH, TRUE);
     }
 
     // 同步 RHI 尺寸。
@@ -2534,6 +2633,14 @@ void FEngine::LayoutUI()
         SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     };
 
+    bringTop(ToolbarPanel);
+    bringTop(ToolbarTitle);
+    bringTop(ToolbarNewLevelBtn);
+    bringTop(ToolbarOpenLevelBtn);
+    bringTop(ToolbarSaveLevelBtn);
+    bringTop(ToolbarImportObjBtn);
+    bringTop(ToolbarPlaceBtn);
+    bringTop(StatusLabel);
     bringTop(SidebarList);
     bringTop(EngineNameLabel);
     bringTop(RenderPathLabel);
@@ -2561,6 +2668,9 @@ void FEngine::LayoutUI()
     bringTop(OutlinerLabel);
     bringTop(OutlinerList);
     bringTop(DetailsLabel);
+    bringTop(DetailNameLabel);
+    bringTop(DetailPositionLabel);
+    bringTop(DetailScaleLabel);
     bringTop(DetailNameEdit);
     bringTop(DetailPosXEdit);
     bringTop(DetailPosYEdit);
@@ -2570,6 +2680,11 @@ void FEngine::LayoutUI()
     bringTop(DetailScaleZEdit);
     bringTop(ApplyDetailsBtn);
     bringTop(BottomPanel);
+    bringTop(ContentTitleLabel);
+    bringTop(TextureTitleLabel);
+    bringTop(PreviewTitleLabel);
+    bringTop(MaterialTitleLabel);
+    bringTop(ContentHintLabel);
 }
 
 /**
@@ -2951,6 +3066,14 @@ void FEngine::Run(HINSTANCE hInstance)
         InitCommonControlsEx(&icc);
     }
     InitializeEditorContent();
+    UIFont = CreateFontW(
+        -15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    UITitleFont = CreateFontW(
+        -16, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
 
     // 创建主窗口与侧栏、视口基础。
     const wchar_t* baseTitle = L"ShellEngine";
@@ -2958,20 +3081,37 @@ void FEngine::Run(HINSTANCE hInstance)
     Window.Show(SW_SHOW);
     DragAcceptFiles(Window.GetHwnd(), TRUE);
 
+    ToolbarPanel = CreateWindowExW(0, L"STATIC", nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 1280, TopToolbarHeightPx, Window.GetHwnd(), MenuHandle(5300), GetModuleHandleW(nullptr), nullptr);
+    ToolbarTitle = CreateWindowExW(0, L"STATIC", L"ShellEngine Editor", WS_CHILD | WS_VISIBLE, 10, 7, 190, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+    ToolbarNewLevelBtn = CreateWindowExW(0, L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 6, 72, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_NEW_LEVEL), GetModuleHandleW(nullptr), nullptr);
+    ToolbarOpenLevelBtn = CreateWindowExW(0, L"BUTTON", L"Open", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 288, 6, 76, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_OPEN_LEVEL), GetModuleHandleW(nullptr), nullptr);
+    ToolbarSaveLevelBtn = CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, 6, 76, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_SAVE_LEVEL), GetModuleHandleW(nullptr), nullptr);
+    ToolbarImportObjBtn = CreateWindowExW(0, L"BUTTON", L"Import OBJ", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 452, 6, 92, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_IMPORT_OBJ), GetModuleHandleW(nullptr), nullptr);
+    ToolbarPlaceBtn = CreateWindowExW(0, L"BUTTON", L"Place", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 550, 6, 72, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_PLACE), GetModuleHandleW(nullptr), nullptr);
+    StatusLabel = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP, 638, 8, 600, 20, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+    ApplyEditorFont(ToolbarTitle, true);
+    ApplyEditorFont(ToolbarNewLevelBtn);
+    ApplyEditorFont(ToolbarOpenLevelBtn);
+    ApplyEditorFont(ToolbarSaveLevelBtn);
+    ApplyEditorFont(ToolbarImportObjBtn);
+    ApplyEditorFont(ToolbarPlaceBtn);
+    ApplyEditorFont(StatusLabel);
+
     // Sidebar listbox (native Win32 UI)
     EngineNameLabel = CreateWindowExW(
         0,
         L"STATIC",
-        baseTitle,
+        L"Place Actors",
         WS_CHILD | WS_VISIBLE | SS_CENTER,
         0,
         0,
         SidebarWidthPx,
         22,
         Window.GetHwnd(),
-        (HMENU)1000,
+        MenuHandle(1000),
         GetModuleHandleW(nullptr),
         nullptr);
+    ApplyEditorFont(EngineNameLabel, true);
 
     SidebarList = CreateWindowExW(
         0,
@@ -2983,9 +3123,10 @@ void FEngine::Run(HINSTANCE hInstance)
         SidebarWidthPx,
         (int)Window.GetHeight(),
         Window.GetHwnd(),
-        (HMENU)1001,
+        MenuHandle(1001),
         GetModuleHandleW(nullptr),
         nullptr);
+    ApplyEditorFont(SidebarList);
     SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Sphere");
     SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Box");
     SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Cone");
@@ -3096,6 +3237,15 @@ void FEngine::Run(HINSTANCE hInstance)
 
         UpdateSkyUI();
     }
+    {
+        HWND fontTargets[] = {
+            RenderPathLabel, RenderPathCombo, LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox,
+            SkyEnableCheckbox, SunYawLabel, SunPitchLabel, SunIntensityLabel, RayleighLabel,
+            MieLabel, MieGLabel, AtmoHeightLabel, SkyLabel
+        };
+        for (HWND h : fontTargets)
+            ApplyEditorFont(h);
+    }
 
     // Viewport child window (swapchain host)
     {
@@ -3111,7 +3261,7 @@ void FEngine::Run(HINSTANCE hInstance)
         RECT rc{};
         GetClientRect(Window.GetHwnd(), &rc);
         const int vw = std::max(1, (int)(rc.right - rc.left) - SidebarWidthPx - RightPanelWidthPx);
-        const int vh = std::max(1, (int)(rc.bottom - rc.top) - BottomPanelHeightPx);
+        const int vh = std::max(1, (int)(rc.bottom - rc.top) - TopToolbarHeightPx - BottomPanelHeightPx);
 
         ViewportHwnd = CreateWindowExW(
             0,
@@ -3119,7 +3269,7 @@ void FEngine::Run(HINSTANCE hInstance)
             nullptr,
             WS_CHILD | WS_VISIBLE,
             SidebarWidthPx,
-            0,
+            TopToolbarHeightPx,
             vw,
             vh,
             Window.GetHwnd(),
@@ -3147,25 +3297,42 @@ void FEngine::Run(HINSTANCE hInstance)
         const int clientW = (int)(rc.right - rc.left);
         const int clientH = (int)(rc.bottom - rc.top);
         const int viewportW = std::max(1, clientW - SidebarWidthPx - RightPanelWidthPx);
-        const int viewportH = std::max(1, clientH - BottomPanelHeightPx);
+        const int viewportH = std::max(1, clientH - TopToolbarHeightPx - BottomPanelHeightPx);
         const int rightX = SidebarWidthPx + viewportW;
 
         RightPanel = CreateWindowExW(
             0, L"STATIC", nullptr,
             WS_CHILD | WS_VISIBLE,
-            rightX, 0, RightPanelWidthPx, viewportH,
+            rightX, TopToolbarHeightPx, RightPanelWidthPx, viewportH,
             Window.GetHwnd(), MenuHandle(5100), GetModuleHandleW(nullptr), nullptr);
         OutlinerLabel = CreateWindowExW(0, L"STATIC", L"Level Outliner", WS_CHILD | WS_VISIBLE, rightX + 8, 8, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         OutlinerList = CreateWindowExW(0, L"LISTBOX", nullptr, WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT, rightX + 8, 30, RightPanelWidthPx - 16, 220, Window.GetHwnd(), MenuHandle(IDC_OUTLINER_LIST), GetModuleHandleW(nullptr), nullptr);
         DetailsLabel = CreateWindowExW(0, L"STATIC", L"Details", WS_CHILD | WS_VISIBLE, rightX + 8, 270, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailNameLabel = CreateWindowExW(0, L"STATIC", L"Name", WS_CHILD | WS_VISIBLE, rightX + 8, 294, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailNameEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 294, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailPositionLabel = CreateWindowExW(0, L"STATIC", L"Location  X / Y / Z", WS_CHILD | WS_VISIBLE, rightX + 8, 320, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailPosXEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 326, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailPosYEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 88, 326, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailPosZEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 168, 326, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailScaleLabel = CreateWindowExW(0, L"STATIC", L"Scale  X / Y / Z", WS_CHILD | WS_VISIBLE, rightX + 8, 350, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailScaleXEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailScaleYEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 88, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailScaleZEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 168, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         ApplyDetailsBtn = CreateWindowExW(0, L"BUTTON", L"Apply Details", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, rightX + 8, 386, RightPanelWidthPx - 16, 24, Window.GetHwnd(), MenuHandle(IDC_APPLY_DETAILS), GetModuleHandleW(nullptr), nullptr);
+        ApplyEditorFont(OutlinerLabel, true);
+        ApplyEditorFont(OutlinerList);
+        ApplyEditorFont(DetailsLabel, true);
+        ApplyEditorFont(DetailNameLabel);
+        ApplyEditorFont(DetailPositionLabel);
+        ApplyEditorFont(DetailScaleLabel);
+        ApplyEditorFont(DetailNameEdit);
+        ApplyEditorFont(DetailPosXEdit);
+        ApplyEditorFont(DetailPosYEdit);
+        ApplyEditorFont(DetailPosZEdit);
+        ApplyEditorFont(DetailScaleXEdit);
+        ApplyEditorFont(DetailScaleYEdit);
+        ApplyEditorFont(DetailScaleZEdit);
+        ApplyEditorFont(ApplyDetailsBtn);
     }
 
     // Bottom panel UI (content + textures + materials + level commands)
@@ -3186,12 +3353,18 @@ void FEngine::Run(HINSTANCE hInstance)
         const int colW = (clientW - padding * 5) / 4;
         const int listH = BottomPanelHeightPx - padding * 2 - 26;
 
+        ContentTitleLabel = CreateWindowExW(0, L"STATIC", L"Content Browser", WS_CHILD | WS_VISIBLE, padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        TextureTitleLabel = CreateWindowExW(0, L"STATIC", L"Textures", WS_CHILD | WS_VISIBLE, padding + colW + padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        PreviewTitleLabel = CreateWindowExW(0, L"STATIC", L"Texture Preview", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 2, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        MaterialTitleLabel = CreateWindowExW(0, L"STATIC", L"Materials / Level", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 3, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+
         ContentList = CreateWindowExW(
             0, L"LISTBOX", nullptr,
             WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
             padding, padding,
             colW, listH,
             BottomPanel, MenuHandle(IDC_CONTENT_LIST), GetModuleHandleW(nullptr), nullptr);
+        ContentHintLabel = CreateWindowExW(0, L"STATIC", L"Double-click asset or use Place", WS_CHILD | WS_VISIBLE, padding, padding + listH + 2, colW, 16, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
 
         ImportObjBtn = CreateWindowExW(
             0, L"BUTTON", L"Import OBJ",
@@ -3253,6 +3426,14 @@ void FEngine::Run(HINSTANCE hInstance)
         SaveLevelBtn = CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             padding + (colW + padding) * 3 + colW / 2 + 2 + (levelButtonW + 2) * 2, padding + listH + 4, levelButtonW, 22,
             BottomPanel, MenuHandle(IDC_SAVE_LEVEL), GetModuleHandleW(nullptr), nullptr);
+
+        HWND fontTargets[] = {
+            ContentTitleLabel, TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel, ContentHintLabel,
+            ContentList, ImportObjBtn, PlaceAssetBtn, TextureList, TexturePreview, MaterialList,
+            NewMaterialBtn, TonemapCheckbox, NewLevelBtn, OpenLevelBtn, SaveLevelBtn
+        };
+        for (HWND h : fontTargets)
+            ApplyEditorFont(h, h == ContentTitleLabel || h == TextureTitleLabel || h == PreviewTitleLabel || h == MaterialTitleLabel);
 
         SetWindowLongPtrW(MaterialList, GWLP_USERDATA, (LONG_PTR)this);
         MaterialOldProc = (WNDPROC)SetWindowLongPtrW(MaterialList, GWLP_WNDPROC, (LONG_PTR)&FEngine::MaterialWndProc);
@@ -3470,6 +3651,16 @@ void FEngine::Run(HINSTANCE hInstance)
     {
         if (t.Preview) DeleteObject(t.Preview);
         t.Preview = nullptr;
+    }
+    if (UIFont)
+    {
+        DeleteObject(UIFont);
+        UIFont = nullptr;
+    }
+    if (UITitleFont)
+    {
+        DeleteObject(UITitleFont);
+        UITitleFont = nullptr;
     }
     CoUninitialize();
 }
