@@ -211,16 +211,12 @@ void FSceneRenderer::Render()
 
     // 路径相关渲染。
     const bool renderDocRockMode = Renderer.IsRenderDocRockLoaded();
+    RenderPath(graph, hdrRtv);
     if (renderDocRockMode)
     {
         Renderer.AddRenderDocRockPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv, ViewInfo.ViewProj, View.Camera->Position);
     }
-    else
-    {
-        RenderPath(graph, hdrRtv);
-    }
-
-    if (!renderDocRockMode && hasSelection && Renderer.GizmoMapped)
+    if (hasSelection && Renderer.GizmoMapped)
     {
         // Gizmo 可视化 Pass。
         // Gizmo vertices are in local-space around origin; world-aligned via gizmo CB (translation only).

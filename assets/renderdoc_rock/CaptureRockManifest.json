@@ -20,7 +20,7 @@
     "normal_transform": "engine = normalize(capture.xzy)"
   },
   "placement": {
-    "base_position_world": [0.0, 0.0, 0.0],
+    "base_position_world": [1.4, 0.0, 0.0],
     "uniform_scale": 0.35,
     "sit_on_ground": true
   },
