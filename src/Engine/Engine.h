@@ -93,6 +93,11 @@ private:
 
     HFONT UIFont = nullptr;
     HFONT UITitleFont = nullptr;
+    HBRUSH UIBackgroundBrush = nullptr;
+    HBRUSH UIPanelBrush = nullptr;
+    HBRUSH UIHeaderBrush = nullptr;
+    HBRUSH UIListBrush = nullptr;
+    HBRUSH UIEditBrush = nullptr;
 
     // Sidebar UI (Win32 controls)
     HWND ToolbarPanel = nullptr;
@@ -102,12 +107,16 @@ private:
     HWND ToolbarSaveLevelBtn = nullptr;
     HWND ToolbarImportObjBtn = nullptr;
     HWND ToolbarPlaceBtn = nullptr;
+    HWND ToolbarSettingsBtn = nullptr;
+    WNDPROC ToolbarSettingsOldProc = nullptr;
     HWND StatusLabel = nullptr;
-    static constexpr int TopToolbarHeightPx = 36;
+    static constexpr int TopToolbarHeightPx = 40;
 
     HWND EngineNameLabel = nullptr;
     HWND SidebarList = nullptr;
-    static constexpr int SidebarWidthPx = 200;
+    HWND SidebarBasicLabel = nullptr;
+    HWND SidebarRenderDocLabel = nullptr;
+    static constexpr int SidebarWidthPx = 280;
     WNDPROC SidebarOldProc = nullptr;
     bool SidebarMaybeDrag = false;
     int SidebarDownX = 0;
@@ -116,34 +125,48 @@ private:
 
     // Sidebar lighting/atmosphere controls
     HWND RenderPathLabel = nullptr;
+    HWND RenderSettingsLabel = nullptr;
+    HWND RenderGILabel = nullptr;
+    HWND SunSectionLabel = nullptr;
+    HWND AtmosphereSectionLabel = nullptr;
     HWND RenderPathCombo = nullptr;
     HWND LumenCheckbox = nullptr;
     HWND LumenSWRTCheckbox = nullptr;
     HWND LumenHWRTCheckbox = nullptr;
     HWND SkyEnableCheckbox = nullptr;
     HWND SunYawLabel = nullptr;
+    HWND SunYawValueLabel = nullptr;
     HWND SunYawSlider = nullptr;
     HWND SunPitchLabel = nullptr;
+    HWND SunPitchValueLabel = nullptr;
     HWND SunPitchSlider = nullptr;
     HWND SunIntensityLabel = nullptr;
+    HWND SunIntensityValueLabel = nullptr;
     HWND SunIntensitySlider = nullptr;
     HWND RayleighLabel = nullptr;
+    HWND RayleighValueLabel = nullptr;
     HWND RayleighSlider = nullptr;
     HWND MieLabel = nullptr;
+    HWND MieValueLabel = nullptr;
     HWND MieSlider = nullptr;
     HWND MieGLabel = nullptr;
+    HWND MieGValueLabel = nullptr;
     HWND MieGSlider = nullptr;
     HWND AtmoHeightLabel = nullptr;
+    HWND AtmoHeightValueLabel = nullptr;
     HWND AtmoHeightSlider = nullptr;
     HWND SkyLabel = nullptr;
 
     // Bottom assets/materials panel
     HWND BottomPanel = nullptr;
-    static constexpr int BottomPanelHeightPx = 210;
+    static constexpr int BottomPanelHeightPx = 260;
     HWND ContentTitleLabel = nullptr;
     HWND TextureTitleLabel = nullptr;
     HWND PreviewTitleLabel = nullptr;
     HWND MaterialTitleLabel = nullptr;
+    HWND ContentPathLabel = nullptr;
+    HWND ContentActionsLabel = nullptr;
+    HWND ContentFoldersList = nullptr;
     HWND ContentHintLabel = nullptr;
     HWND ContentList = nullptr;
     HWND ImportObjBtn = nullptr;
@@ -156,6 +179,15 @@ private:
     HWND TexturePreview = nullptr;
     HWND NewMaterialBtn = nullptr;
     HWND TonemapCheckbox = nullptr;
+    enum class EContentFilter : uint8
+    {
+        Models,
+        Textures,
+        Materials,
+        Levels,
+    };
+    EContentFilter ContentFilter = EContentFilter::Models;
+    std::vector<int> ContentListAssetIndices;
     WNDPROC MaterialOldProc = nullptr;
     bool MaterialMaybeDrag = false;
     int MaterialDownX = 0;
@@ -222,6 +254,7 @@ private:
 
     // Material editor window
     HWND MaterialEditorHwnd = nullptr;
+    HWND RenderSettingsHwnd = nullptr;
     int EditingMaterialIndex = -1;
     /**
      * @brief 材质编辑器窗口过程。
@@ -233,6 +266,8 @@ private:
      * @note 阶段：运行时 UI 交互阶段。
      */
     static LRESULT CALLBACK MaterialEditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK RenderSettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK ToolbarSettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     /**
      * @brief 打开材质编辑器并绑定指定材质。
      * @param materialIndex 材质索引。
@@ -254,6 +289,9 @@ private:
      * @note 阶段：UI 编辑提交阶段。
      */
     void ApplyMaterialEditorChanges();
+    void OpenRenderSettingsDialog();
+    void LayoutRenderSettingsDialog();
+    void SyncRenderSettingsControls();
 
     // Helpers
     /**
@@ -269,6 +307,14 @@ private:
     void RefreshDetailsPanel();
     void UpdateStatusText();
     void ApplyEditorFont(HWND hwnd, bool title = false);
+    LRESULT ApplyEditorControlColors(HWND control, HDC hdc, UINT msg);
+    HWND CreateEditorLabel(const wchar_t* text, HWND parent, bool title = false);
+    HWND CreateEditorButton(const wchar_t* text, HWND parent, int id);
+    HWND CreateEditorCheckbox(const wchar_t* text, HWND parent, int id);
+    HWND CreateEditorList(HWND parent, int id);
+    void SelectContentFilter(EContentFilter filter);
+    bool DoesAssetPassContentFilter(const editor::FAssetRecord& asset) const;
+    std::wstring ContentFilterDisplayName(EContentFilter filter) const;
     void SetSelectedIndex(int index);
     void MarkLevelDirty();
     void UpdateWindowTitle(const wchar_t* baseTitle, const wchar_t* pathName);
@@ -291,6 +337,15 @@ private:
     static std::wstring SceneObjectTypeToString(FSceneObject::EType type);
     static FSceneObject::EType SceneObjectTypeFromString(const std::wstring& type);
     void ApplyDetailsEdits();
+    void EnsureDefaultEnvironmentActors();
+    const FSceneObject* FindActiveSunLight() const;
+    FSceneObject* FindActiveSunLight();
+    const FSceneObject* FindActiveSkyAtmosphere() const;
+    DirectX::XMFLOAT3 GetActiveLightDirection() const;
+    float GetActiveSunIntensity() const;
+    FSkyAtmosphereSettings GetActiveSkySettings() const;
+    static DirectX::XMFLOAT3 DirectionToSunPosition(float yaw, float pitch, float distance);
+    static void SunPositionToAngles(const DirectX::XMFLOAT3& position, float& yaw, float& pitch);
 
     // Viewport (child window hosting swapchain)
     HWND ViewportHwnd = nullptr;
@@ -376,7 +431,7 @@ private:
     float CameraLookSensitivity = 0.0018f / 5.0f; // radians per raw mouse count
 
     // UE-like editor state
-    static constexpr int RightPanelWidthPx = 260;
+    static constexpr int RightPanelWidthPx = 300;
     HWND RightPanel = nullptr;
     HWND OutlinerLabel = nullptr;
     HWND OutlinerList = nullptr;
@@ -391,6 +446,17 @@ private:
     HWND DetailScaleXEdit = nullptr;
     HWND DetailScaleYEdit = nullptr;
     HWND DetailScaleZEdit = nullptr;
+    HWND DetailIntensityLabel = nullptr;
+    HWND DetailIntensityEdit = nullptr;
+    HWND DetailSkyEnabledCheckbox = nullptr;
+    HWND DetailRayleighLabel = nullptr;
+    HWND DetailRayleighEdit = nullptr;
+    HWND DetailMieLabel = nullptr;
+    HWND DetailMieEdit = nullptr;
+    HWND DetailMieGLabel = nullptr;
+    HWND DetailMieGEdit = nullptr;
+    HWND DetailAtmosphereHeightLabel = nullptr;
+    HWND DetailAtmosphereHeightEdit = nullptr;
     HWND ApplyDetailsBtn = nullptr;
     bool bSuppressOutlinerEvents = false;
 

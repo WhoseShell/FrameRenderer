@@ -73,6 +73,13 @@ uint32 GetUInt(const rdcimport::FJsonValue& obj, const char* key, uint32 fallbac
     return fallback;
 }
 
+bool GetBool(const rdcimport::FJsonValue& obj, const char* key, bool fallback)
+{
+    if (const rdcimport::FJsonValue* v = obj.Find(key); v && v->IsBool())
+        return v->AsBool();
+    return fallback;
+}
+
 DirectX::XMFLOAT3 GetFloat3(const rdcimport::FJsonValue& obj, const char* key, const DirectX::XMFLOAT3& fallback)
 {
     const rdcimport::FJsonValue* v = obj.Find(key);
@@ -305,7 +312,13 @@ bool SaveLevelFile(const std::filesystem::path& path, const FLevelFile& level, s
         EmitFloat3(os, "scale", o.Scale);
         EmitFloat3(os, "albedo", o.Albedo);
         os << "      \"metallic\": " << o.Metallic << ",\n";
-        os << "      \"roughness\": " << o.Roughness << "\n";
+        os << "      \"roughness\": " << o.Roughness << ",\n";
+        os << "      \"lightIntensity\": " << o.LightIntensity << ",\n";
+        os << "      \"skyEnabled\": " << (o.SkyEnabled ? "true" : "false") << ",\n";
+        os << "      \"rayleighScale\": " << o.RayleighScale << ",\n";
+        os << "      \"mieScale\": " << o.MieScale << ",\n";
+        os << "      \"mieG\": " << o.MieG << ",\n";
+        os << "      \"atmosphereHeight\": " << o.AtmosphereHeight << "\n";
         os << "    }" << ((i + 1 < level.Objects.size()) ? "," : "") << "\n";
     }
     os << "  ]\n";
@@ -350,6 +363,12 @@ bool LoadLevelFile(const std::filesystem::path& path, FLevelFile& level, std::ws
                 o.Albedo = GetFloat3(v, "albedo", o.Albedo);
                 o.Metallic = GetFloat(v, "metallic", o.Metallic);
                 o.Roughness = GetFloat(v, "roughness", o.Roughness);
+                o.LightIntensity = GetFloat(v, "lightIntensity", o.LightIntensity);
+                o.SkyEnabled = GetBool(v, "skyEnabled", o.SkyEnabled);
+                o.RayleighScale = GetFloat(v, "rayleighScale", o.RayleighScale);
+                o.MieScale = GetFloat(v, "mieScale", o.MieScale);
+                o.MieG = GetFloat(v, "mieG", o.MieG);
+                o.AtmosphereHeight = GetFloat(v, "atmosphereHeight", o.AtmosphereHeight);
                 level.Objects.push_back(o);
             }
         }

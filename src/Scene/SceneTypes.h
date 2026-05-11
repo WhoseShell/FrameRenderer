@@ -15,6 +15,8 @@ struct FSceneObject
         Cone,
         RenderDocRock,
         StaticMesh,
+        SunLight,
+        SkyAtmosphere,
     };
 
     uint32 Id = 0;
@@ -39,13 +41,23 @@ struct FSceneObject
     float UseRoughnessTex = 0.0f;
     float UseMetallicTex = 0.0f;
     float UseAOTex = 0.0f;
+
+    // Environment actor parameters.
+    float LightIntensity = 3.0f;
+    bool SkyEnabled = true;
+    float RayleighScale = 1.0f;
+    float MieScale = 1.0f;
+    float MieG = 0.8f;
+    float AtmosphereHeight = 12.0f;
 };
 
 inline bool IsProceduralSceneObject(FSceneObject::EType type)
 {
     return type == FSceneObject::EType::Sphere
         || type == FSceneObject::EType::Box
-        || type == FSceneObject::EType::Cone;
+        || type == FSceneObject::EType::Cone
+        || type == FSceneObject::EType::SunLight
+        || type == FSceneObject::EType::SkyAtmosphere;
 }
 
 inline bool IsStaticMeshSceneObject(FSceneObject::EType type)
@@ -61,4 +73,10 @@ inline bool IsMeshSceneObject(FSceneObject::EType type)
 inline bool IsRenderDocRockObject(FSceneObject::EType type)
 {
     return type == FSceneObject::EType::RenderDocRock;
+}
+
+inline bool IsEnvironmentSceneObject(FSceneObject::EType type)
+{
+    return type == FSceneObject::EType::SunLight
+        || type == FSceneObject::EType::SkyAtmosphere;
 }

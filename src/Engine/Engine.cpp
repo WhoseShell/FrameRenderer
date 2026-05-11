@@ -30,8 +30,17 @@ constexpr int IDC_TOOLBAR_OPEN_LEVEL = 5008;
 constexpr int IDC_TOOLBAR_SAVE_LEVEL = 5009;
 constexpr int IDC_TOOLBAR_IMPORT_OBJ = 5010;
 constexpr int IDC_TOOLBAR_PLACE = 5011;
+constexpr int IDC_CONTENT_FOLDERS = 5012;
+constexpr int IDC_TOOLBAR_SETTINGS = 5013;
 constexpr int IDC_OUTLINER_LIST = 5101;
 constexpr int IDC_APPLY_DETAILS = 5201;
+
+constexpr COLORREF kEditorBackground = RGB(20, 20, 20);
+constexpr COLORREF kEditorPanel = RGB(31, 31, 31);
+constexpr COLORREF kEditorHeader = RGB(43, 43, 43);
+constexpr COLORREF kEditorList = RGB(24, 24, 24);
+constexpr COLORREF kEditorEdit = RGB(46, 46, 46);
+constexpr COLORREF kEditorText = RGB(226, 226, 226);
 
 std::filesystem::path MakeUniquePath(const std::filesystem::path& directory, const std::filesystem::path& fileName)
 {
@@ -60,21 +69,28 @@ bool IsPathUnder(const std::filesystem::path& root, const std::filesystem::path&
     return first.wstring() != L"..";
 }
 
-std::wstring DisplayAssetKind(editor::EAssetKind kind)
+std::wstring DisplayContentAsset(const editor::FAssetRecord& asset)
 {
-    switch (kind)
-    {
-    case editor::EAssetKind::Model: return L"[Model] ";
-    case editor::EAssetKind::Texture: return L"[Texture] ";
-    case editor::EAssetKind::Material: return L"[Material] ";
-    case editor::EAssetKind::Level: return L"[Level] ";
-    default: return L"[Asset] ";
-    }
+    return asset.Name + L"    " + asset.RelativePath;
 }
 
 HMENU MenuHandle(int id)
 {
     return reinterpret_cast<HMENU>(static_cast<INT_PTR>(id));
+}
+
+FSceneObject::EType PaletteTypeFromListIndex(int index)
+{
+    switch (index)
+    {
+    case 0: return FSceneObject::EType::Sphere;
+    case 1: return FSceneObject::EType::Box;
+    case 2: return FSceneObject::EType::Cone;
+    case 3: return FSceneObject::EType::SunLight;
+    case 4: return FSceneObject::EType::SkyAtmosphere;
+    case 5: return FSceneObject::EType::RenderDocRock;
+    default: return FSceneObject::EType::Sphere;
+    }
 }
 }
 
@@ -710,14 +726,7 @@ LRESULT CALLBACK FEngine::SidebarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             // 先让 ListBox 更新选中项，再同步 Palette 类型。
             const LRESULT r = CallWindowProcW(engine->SidebarOldProc, hwnd, msg, wParam, lParam);
             const int sel = (int)SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
-            switch (sel)
-            {
-            case 0: engine->PaletteType = FSceneObject::EType::Sphere; break;
-            case 1: engine->PaletteType = FSceneObject::EType::Box; break;
-            case 2: engine->PaletteType = FSceneObject::EType::Cone; break;
-            case 3: engine->PaletteType = FSceneObject::EType::RenderDocRock; break;
-            default: break;
-            }
+            engine->PaletteType = PaletteTypeFromListIndex(sel);
             return r;
         }
     case WM_MOUSEMOVE:
@@ -886,6 +895,17 @@ LRESULT CALLBACK FEngine::BottomWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         return SendMessageW(GetParent(hwnd), WM_COMMAND, wParam, lParam);
     }
 
+    if (msg == WM_ERASEBKGND)
+    {
+        RECT fillRc{};
+        GetClientRect(hwnd, &fillRc);
+        FillRect((HDC)wParam, &fillRc, engine->UIPanelBrush ? engine->UIPanelBrush : (HBRUSH)GetStockObject(BLACK_BRUSH));
+        return 1;
+    }
+
+    if (msg == WM_CTLCOLORLISTBOX || msg == WM_CTLCOLOREDIT || msg == WM_CTLCOLORBTN || msg == WM_CTLCOLORSTATIC)
+        return engine->ApplyEditorControlColors((HWND)lParam, (HDC)wParam, msg);
+
     if (msg == WM_DROPFILES)
     {
         // 拖拽导入纹理：逐文件调用导入逻辑。
@@ -985,6 +1005,71 @@ LRESULT CALLBACK FEngine::MaterialEditorWndProc(HWND hwnd, UINT msg, WPARAM wPar
         break;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK FEngine::RenderSettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    auto* engine = reinterpret_cast<FEngine*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    switch (msg)
+    {
+    case WM_NCCREATE:
+    {
+        const CREATESTRUCTW* cs = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+        engine = reinterpret_cast<FEngine*>(cs->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)engine);
+        return TRUE;
+    }
+    case WM_COMMAND:
+        if (engine)
+            return SendMessageW(engine->Window.GetHwnd(), WM_COMMAND, wParam, lParam);
+        break;
+    case WM_SIZE:
+        if (engine)
+            engine->LayoutRenderSettingsDialog();
+        return 0;
+    case WM_CLOSE:
+        ShowWindow(hwnd, SW_HIDE);
+        return 0;
+    case WM_DESTROY:
+        if (engine && engine->RenderSettingsHwnd == hwnd)
+            engine->RenderSettingsHwnd = nullptr;
+        return 0;
+    case WM_ERASEBKGND:
+        if (engine)
+        {
+            RECT fillRc{};
+            GetClientRect(hwnd, &fillRc);
+            FillRect((HDC)wParam, &fillRc, engine->UIPanelBrush ? engine->UIPanelBrush : (HBRUSH)GetStockObject(BLACK_BRUSH));
+            return 1;
+        }
+        break;
+    case WM_CTLCOLORLISTBOX:
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLORSTATIC:
+        if (engine)
+            return engine->ApplyEditorControlColors((HWND)lParam, (HDC)wParam, msg);
+        break;
+    default:
+        break;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK FEngine::ToolbarSettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    auto* engine = reinterpret_cast<FEngine*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!engine || !engine->ToolbarSettingsOldProc)
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+    if (msg == BM_CLICK || msg == WM_LBUTTONUP || (msg == WM_KEYUP && (wParam == VK_SPACE || wParam == VK_RETURN)))
+    {
+        const LRESULT result = CallWindowProcW(engine->ToolbarSettingsOldProc, hwnd, msg, wParam, lParam);
+        engine->OpenRenderSettingsDialog();
+        return result;
+    }
+
+    return CallWindowProcW(engine->ToolbarSettingsOldProc, hwnd, msg, wParam, lParam);
 }
 
 /**
@@ -1282,14 +1367,14 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         {
             // 侧栏选择改变：切换放置类型。
             const int sel = (int)SendMessageW(SidebarList, LB_GETCURSEL, 0, 0);
-            switch (sel)
-            {
-            case 0: PaletteType = FSceneObject::EType::Sphere; break;
-            case 1: PaletteType = FSceneObject::EType::Box; break;
-            case 2: PaletteType = FSceneObject::EType::Cone; break;
-            case 3: PaletteType = FSceneObject::EType::RenderDocRock; break;
-            default: break;
-            }
+            PaletteType = PaletteTypeFromListIndex(sel);
+            return 0;
+        }
+        if (HIWORD(wParam) == LBN_SELCHANGE && (HWND)lParam == ContentFoldersList)
+        {
+            const int sel = (int)SendMessageW(ContentFoldersList, LB_GETCURSEL, 0, 0);
+            if (sel >= 0 && sel <= (int)EContentFilter::Levels)
+                SelectContentFilter((EContentFilter)sel);
             return 0;
         }
         if ((HWND)lParam == ContentList && HIWORD(wParam) == LBN_DBLCLK)
@@ -1321,6 +1406,11 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if ((HWND)lParam == ToolbarPlaceBtn && HIWORD(wParam) == BN_CLICKED)
         {
             PlaceSelectedContentAsset();
+            return 0;
+        }
+        if (((HWND)lParam == ToolbarSettingsBtn || LOWORD(wParam) == IDC_TOOLBAR_SETTINGS) && HIWORD(wParam) == BN_CLICKED)
+        {
+            OpenRenderSettingsDialog();
             return 0;
         }
         if ((HWND)lParam == NewLevelBtn && HIWORD(wParam) == BN_CLICKED)
@@ -1405,6 +1495,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
             Materials.push_back(mat);
             SaveMaterialAsset((int)Materials.size() - 1);
+            SelectContentFilter(EContentFilter::Materials);
             if (MaterialList)
             {
                 SendMessageW(MaterialList, LB_ADDSTRING, 0, (LPARAM)mat.Name.c_str());
@@ -1496,13 +1587,18 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_SIZE:
         LayoutUI();
         return 0;
+    case WM_ERASEBKGND:
+    {
+        RECT fillRc{};
+        GetClientRect(hwnd, &fillRc);
+        FillRect((HDC)wParam, &fillRc, UIBackgroundBrush ? UIBackgroundBrush : (HBRUSH)GetStockObject(BLACK_BRUSH));
+        return 1;
+    }
     case WM_CTLCOLORLISTBOX:
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORBTN:
     case WM_CTLCOLORSTATIC:
-        // Ensure sidebar uses readable colors (avoid "black on black" on some setups).
-        SetTextColor((HDC)wParam, RGB(230, 230, 230));
-        SetBkColor((HDC)wParam, RGB(30, 30, 30));
-        SetDCBrushColor((HDC)wParam, RGB(30, 30, 30));
-        return (LRESULT)GetStockObject(DC_BRUSH);
+        return ApplyEditorControlColors((HWND)lParam, (HDC)wParam, msg);
     case WM_DROPFILES:
     {
         HDROP drop = (HDROP)wParam;
@@ -1661,14 +1757,34 @@ void FEngine::RefreshContentBrowser()
     if (ContentRoot.empty())
         return;
     ContentAssets = editor::ScanContent(ContentLayout);
+    if (ContentFoldersList)
+        SendMessageW(ContentFoldersList, LB_SETCURSEL, (WPARAM)static_cast<int>(ContentFilter), 0);
+    if (ContentPathLabel)
+    {
+        const std::wstring text = L"Content / " + ContentFilterDisplayName(ContentFilter);
+        SetWindowTextW(ContentPathLabel, text.c_str());
+    }
     if (!ContentList)
+    {
+        UpdateStatusText();
         return;
+    }
 
     SendMessageW(ContentList, LB_RESETCONTENT, 0, 0);
-    for (const editor::FAssetRecord& asset : ContentAssets)
+    ContentListAssetIndices.clear();
+    for (int i = 0; i < (int)ContentAssets.size(); ++i)
     {
-        const std::wstring label = DisplayAssetKind(asset.Kind) + asset.RelativePath;
+        const editor::FAssetRecord& asset = ContentAssets[(size_t)i];
+        if (!DoesAssetPassContentFilter(asset))
+            continue;
+        ContentListAssetIndices.push_back(i);
+        const std::wstring label = DisplayContentAsset(asset);
         SendMessageW(ContentList, LB_ADDSTRING, 0, (LPARAM)label.c_str());
+    }
+    if (ContentHintLabel)
+    {
+        const std::wstring hint = std::to_wstring(ContentListAssetIndices.size()) + L" items. Double-click or use Place/Open.";
+        SetWindowTextW(ContentHintLabel, hint.c_str());
     }
     UpdateStatusText();
 }
@@ -1695,17 +1811,41 @@ void FEngine::RefreshOutliner()
 void FEngine::RefreshDetailsPanel()
 {
     const bool hasSelection = SelectedIndex >= 0 && SelectedIndex < (int)Objects.size();
-    HWND edits[] = { DetailNameEdit, DetailPosXEdit, DetailPosYEdit, DetailPosZEdit, DetailScaleXEdit, DetailScaleYEdit, DetailScaleZEdit, ApplyDetailsBtn };
+    HWND edits[] = {
+        DetailNameEdit, DetailPosXEdit, DetailPosYEdit, DetailPosZEdit,
+        DetailScaleXEdit, DetailScaleYEdit, DetailScaleZEdit,
+        DetailIntensityEdit, DetailSkyEnabledCheckbox, DetailRayleighEdit,
+        DetailMieEdit, DetailMieGEdit, DetailAtmosphereHeightEdit,
+        ApplyDetailsBtn
+    };
     for (HWND h : edits)
         if (h) EnableWindow(h, hasSelection ? TRUE : FALSE);
+    HWND sunControls[] = { DetailIntensityLabel, DetailIntensityEdit };
+    HWND skyControls[] = {
+        DetailSkyEnabledCheckbox, DetailRayleighLabel, DetailRayleighEdit,
+        DetailMieLabel, DetailMieEdit, DetailMieGLabel, DetailMieGEdit,
+        DetailAtmosphereHeightLabel, DetailAtmosphereHeightEdit
+    };
+    auto showGroup = [](const HWND* controls, size_t count, bool show)
+    {
+        for (size_t i = 0; i < count; ++i)
+            if (controls[i]) ShowWindow(controls[i], show ? SW_SHOW : SW_HIDE);
+    };
     if (!hasSelection)
     {
         if (DetailsLabel) SetWindowTextW(DetailsLabel, L"Details");
         if (DetailNameEdit) SetWindowTextW(DetailNameEdit, L"");
+        showGroup(sunControls, _countof(sunControls), false);
+        showGroup(skyControls, _countof(skyControls), false);
+        LayoutUI();
         return;
     }
 
     const FSceneObject& object = Objects[(size_t)SelectedIndex];
+    const bool isSun = object.Type == FSceneObject::EType::SunLight;
+    const bool isSky = object.Type == FSceneObject::EType::SkyAtmosphere;
+    showGroup(sunControls, _countof(sunControls), isSun);
+    showGroup(skyControls, _countof(skyControls), isSky);
     if (DetailsLabel)
     {
         const std::wstring title = L"Details: " + SceneObjectTypeToString(object.Type);
@@ -1725,6 +1865,18 @@ void FEngine::RefreshDetailsPanel()
     setFloat(DetailScaleXEdit, object.Scale.x);
     setFloat(DetailScaleYEdit, object.Scale.y);
     setFloat(DetailScaleZEdit, object.Scale.z);
+    if (isSun)
+        setFloat(DetailIntensityEdit, object.LightIntensity);
+    if (isSky)
+    {
+        if (DetailSkyEnabledCheckbox)
+            SendMessageW(DetailSkyEnabledCheckbox, BM_SETCHECK, object.SkyEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+        setFloat(DetailRayleighEdit, object.RayleighScale);
+        setFloat(DetailMieEdit, object.MieScale);
+        setFloat(DetailMieGEdit, object.MieG);
+        setFloat(DetailAtmosphereHeightEdit, object.AtmosphereHeight);
+    }
+    LayoutUI();
     UpdateStatusText();
 }
 
@@ -1750,6 +1902,271 @@ void FEngine::ApplyEditorFont(HWND hwnd, bool title)
     if (!hwnd)
         return;
     SendMessageW(hwnd, WM_SETFONT, (WPARAM)(title ? UITitleFont : UIFont), TRUE);
+}
+
+LRESULT FEngine::ApplyEditorControlColors(HWND control, HDC hdc, UINT msg)
+{
+    if (!hdc)
+        return (LRESULT)(UIPanelBrush ? UIPanelBrush : GetStockObject(DC_BRUSH));
+
+    COLORREF text = kEditorText;
+    COLORREF bg = kEditorPanel;
+    HBRUSH brush = UIPanelBrush;
+
+    if (msg == WM_CTLCOLOREDIT)
+    {
+        text = kEditorText;
+        bg = kEditorEdit;
+        brush = UIEditBrush;
+    }
+    else if (msg == WM_CTLCOLORLISTBOX)
+    {
+        bg = kEditorList;
+        brush = UIListBrush;
+    }
+    else if (msg == WM_CTLCOLORBTN)
+    {
+        bg = kEditorPanel;
+        brush = UIPanelBrush;
+    }
+    else if (control == ToolbarPanel || control == ContentTitleLabel || control == TextureTitleLabel ||
+             control == PreviewTitleLabel || control == MaterialTitleLabel || control == RenderSettingsLabel ||
+             control == RenderGILabel || control == SunSectionLabel || control == AtmosphereSectionLabel ||
+             control == SidebarBasicLabel || control == SidebarRenderDocLabel)
+    {
+        bg = kEditorHeader;
+        brush = UIHeaderBrush;
+    }
+    else if (control == BottomPanel || control == RightPanel)
+    {
+        bg = kEditorPanel;
+        brush = UIPanelBrush;
+    }
+
+    SetTextColor(hdc, text);
+    SetBkColor(hdc, bg);
+    SetBkMode(hdc, OPAQUE);
+    return (LRESULT)(brush ? brush : GetStockObject(DC_BRUSH));
+}
+
+HWND FEngine::CreateEditorLabel(const wchar_t* text, HWND parent, bool title)
+{
+    HWND h = CreateWindowExW(
+        0,
+        L"STATIC",
+        text ? text : L"",
+        WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP,
+        0, 0, 10, 10,
+        parent ? parent : Window.GetHwnd(),
+        nullptr,
+        GetModuleHandleW(nullptr),
+        nullptr);
+    ApplyEditorFont(h, title);
+    return h;
+}
+
+HWND FEngine::CreateEditorButton(const wchar_t* text, HWND parent, int id)
+{
+    HWND h = CreateWindowExW(
+        0,
+        L"BUTTON",
+        text ? text : L"",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_FLAT,
+        0, 0, 10, 10,
+        parent ? parent : Window.GetHwnd(),
+        MenuHandle(id),
+        GetModuleHandleW(nullptr),
+        nullptr);
+    ApplyEditorFont(h);
+    return h;
+}
+
+HWND FEngine::CreateEditorCheckbox(const wchar_t* text, HWND parent, int id)
+{
+    HWND h = CreateWindowExW(
+        0,
+        L"BUTTON",
+        text ? text : L"",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | BS_FLAT,
+        0, 0, 10, 10,
+        parent ? parent : Window.GetHwnd(),
+        MenuHandle(id),
+        GetModuleHandleW(nullptr),
+        nullptr);
+    ApplyEditorFont(h);
+    return h;
+}
+
+HWND FEngine::CreateEditorList(HWND parent, int id)
+{
+    HWND h = CreateWindowExW(
+        WS_EX_CLIENTEDGE,
+        L"LISTBOX",
+        nullptr,
+        WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
+        0, 0, 10, 10,
+        parent ? parent : Window.GetHwnd(),
+        MenuHandle(id),
+        GetModuleHandleW(nullptr),
+        nullptr);
+    ApplyEditorFont(h);
+    return h;
+}
+
+void FEngine::SelectContentFilter(EContentFilter filter)
+{
+    ContentFilter = filter;
+    if (ContentFoldersList)
+        SendMessageW(ContentFoldersList, LB_SETCURSEL, (WPARAM)static_cast<int>(ContentFilter), 0);
+    RefreshContentBrowser();
+}
+
+bool FEngine::DoesAssetPassContentFilter(const editor::FAssetRecord& asset) const
+{
+    switch (ContentFilter)
+    {
+    case EContentFilter::Models:
+        return asset.Kind == editor::EAssetKind::Model;
+    case EContentFilter::Textures:
+        return asset.Kind == editor::EAssetKind::Texture;
+    case EContentFilter::Materials:
+        return asset.Kind == editor::EAssetKind::Material;
+    case EContentFilter::Levels:
+        return asset.Kind == editor::EAssetKind::Level;
+    default:
+        return true;
+    }
+}
+
+std::wstring FEngine::ContentFilterDisplayName(EContentFilter filter) const
+{
+    switch (filter)
+    {
+    case EContentFilter::Models: return L"Models";
+    case EContentFilter::Textures: return L"Textures";
+    case EContentFilter::Materials: return L"Materials";
+    case EContentFilter::Levels: return L"Levels";
+    default: return L"Content";
+    }
+}
+
+DirectX::XMFLOAT3 FEngine::DirectionToSunPosition(float yaw, float pitch, float distance)
+{
+    using namespace DirectX;
+    const float cy = ::cosf(yaw);
+    const float sy = ::sinf(yaw);
+    const float cp = ::cosf(pitch);
+    const float sp = ::sinf(pitch);
+    const XMVECTOR lightDir = XMVector3Normalize(XMVectorSet(sy * cp, sp, cy * cp, 0.0f));
+    const XMVECTOR sunPos = XMVectorScale(lightDir, -distance);
+    XMFLOAT3 out{};
+    XMStoreFloat3(&out, sunPos);
+    return out;
+}
+
+void FEngine::SunPositionToAngles(const DirectX::XMFLOAT3& position, float& yaw, float& pitch)
+{
+    using namespace DirectX;
+    XMVECTOR pos = XMLoadFloat3(&position);
+    if (XMVectorGetX(XMVector3LengthSq(pos)) < 1e-6f)
+    {
+        const XMFLOAT3 fallback = DirectionToSunPosition(0.0f, -0.6f, 10.0f);
+        pos = XMLoadFloat3(&fallback);
+    }
+    const XMVECTOR lightDir = XMVectorNegate(XMVector3Normalize(pos));
+    const float x = XMVectorGetX(lightDir);
+    const float y = XMVectorGetY(lightDir);
+    const float z = XMVectorGetZ(lightDir);
+    yaw = ::atan2f(x, z);
+    pitch = ::asinf(Clamp(y, -1.0f, 1.0f));
+}
+
+const FSceneObject* FEngine::FindActiveSunLight() const
+{
+    for (const FSceneObject& object : Objects)
+        if (object.Type == FSceneObject::EType::SunLight)
+            return &object;
+    return nullptr;
+}
+
+FSceneObject* FEngine::FindActiveSunLight()
+{
+    for (FSceneObject& object : Objects)
+        if (object.Type == FSceneObject::EType::SunLight)
+            return &object;
+    return nullptr;
+}
+
+const FSceneObject* FEngine::FindActiveSkyAtmosphere() const
+{
+    for (const FSceneObject& object : Objects)
+        if (object.Type == FSceneObject::EType::SkyAtmosphere)
+            return &object;
+    return nullptr;
+}
+
+DirectX::XMFLOAT3 FEngine::GetActiveLightDirection() const
+{
+    using namespace DirectX;
+    if (const FSceneObject* sun = FindActiveSunLight())
+    {
+        XMVECTOR pos = XMLoadFloat3(&sun->Position);
+        if (XMVectorGetX(XMVector3LengthSq(pos)) > 1e-6f)
+        {
+            XMFLOAT3 out{};
+            XMStoreFloat3(&out, XMVectorNegate(XMVector3Normalize(pos)));
+            return out;
+        }
+    }
+
+    const float cy = ::cosf(SunYaw);
+    const float sy = ::sinf(SunYaw);
+    const float cp = ::cosf(SunPitch);
+    const float sp = ::sinf(SunPitch);
+    XMFLOAT3 fallback{};
+    XMStoreFloat3(&fallback, XMVector3Normalize(XMVectorSet(sy * cp, sp, cy * cp, 0.0f)));
+    return fallback;
+}
+
+float FEngine::GetActiveSunIntensity() const
+{
+    if (const FSceneObject* sun = FindActiveSunLight())
+        return sun->LightIntensity;
+    return SunIntensity;
+}
+
+FSkyAtmosphereSettings FEngine::GetActiveSkySettings() const
+{
+    FSkyAtmosphereSettings out = SkySettings;
+    if (const FSceneObject* sky = FindActiveSkyAtmosphere())
+    {
+        out.Enable = sky->SkyEnabled;
+        out.RayleighScale = sky->RayleighScale;
+        out.MieScale = sky->MieScale;
+        out.MieG = sky->MieG;
+        out.AtmosphereHeight = sky->AtmosphereHeight;
+    }
+    return out;
+}
+
+void FEngine::EnsureDefaultEnvironmentActors()
+{
+    if (!FindActiveSunLight())
+    {
+        FSceneObject sun = MakeSceneObject(FSceneObject::EType::SunLight, DirectionToSunPosition(SunYaw, SunPitch, 10.0f));
+        sun.LightIntensity = SunIntensity;
+        Objects.push_back(sun);
+    }
+    if (!FindActiveSkyAtmosphere())
+    {
+        FSceneObject sky = MakeSceneObject(FSceneObject::EType::SkyAtmosphere, { -2.5f, 1.6f, -2.5f });
+        sky.SkyEnabled = SkySettings.Enable;
+        sky.RayleighScale = SkySettings.RayleighScale;
+        sky.MieScale = SkySettings.MieScale;
+        sky.MieG = SkySettings.MieG;
+        sky.AtmosphereHeight = SkySettings.AtmosphereHeight;
+        Objects.push_back(sky);
+    }
 }
 
 void FEngine::SetSelectedIndex(int index)
@@ -1793,6 +2210,7 @@ void FEngine::NewLevel()
     NextObjectId = 1;
     CurrentLevelPath.clear();
     CurrentLevelName = L"Untitled";
+    EnsureDefaultEnvironmentActors();
     bLevelDirty = false;
     SetSelectedIndex(-1);
 }
@@ -1880,11 +2298,12 @@ void FEngine::ImportObjFromDialog()
         if (ec)
             return;
     }
-    RefreshContentBrowser();
+    SelectContentFilter(EContentFilter::Models);
     const std::wstring rel = editor::MakeRelativeContentPath(ContentRoot, finalPath);
-    for (int i = 0; i < (int)ContentAssets.size(); ++i)
+    for (int i = 0; i < (int)ContentListAssetIndices.size(); ++i)
     {
-        if (ContentAssets[(size_t)i].RelativePath == rel)
+        const int assetIndex = ContentListAssetIndices[(size_t)i];
+        if (assetIndex >= 0 && assetIndex < (int)ContentAssets.size() && ContentAssets[(size_t)assetIndex].RelativePath == rel)
         {
             SendMessageW(ContentList, LB_SETCURSEL, (WPARAM)i, 0);
             PlaceSelectedContentAsset();
@@ -1898,9 +2317,12 @@ void FEngine::PlaceSelectedContentAsset()
     if (!ContentList)
         return;
     const int sel = (int)SendMessageW(ContentList, LB_GETCURSEL, 0, 0);
-    if (sel < 0 || sel >= (int)ContentAssets.size())
+    if (sel < 0 || sel >= (int)ContentListAssetIndices.size())
         return;
-    const editor::FAssetRecord& asset = ContentAssets[(size_t)sel];
+    const int assetIndex = ContentListAssetIndices[(size_t)sel];
+    if (assetIndex < 0 || assetIndex >= (int)ContentAssets.size())
+        return;
+    const editor::FAssetRecord& asset = ContentAssets[(size_t)assetIndex];
     if (asset.Kind == editor::EAssetKind::Level)
     {
         LoadLevelFromPath(asset.AbsolutePath);
@@ -2102,6 +2524,18 @@ FSceneObject FEngine::MakeSceneObject(FSceneObject::EType type, const DirectX::X
     case FSceneObject::EType::Cone: obj.Radius = 0.9f; obj.Albedo = { 0.95f, 0.75f, 0.20f }; break;
     case FSceneObject::EType::RenderDocRock: obj.Radius = 2.05f; obj.Albedo = { 0.45f, 0.45f, 0.45f }; break;
     case FSceneObject::EType::StaticMesh: obj.Radius = 1.0f; obj.Albedo = { 0.75f, 0.75f, 0.75f }; break;
+    case FSceneObject::EType::SunLight:
+        obj.Radius = 0.35f;
+        obj.Scale = { 0.18f, 0.18f, 0.18f };
+        obj.Albedo = { 1.0f, 0.82f, 0.18f };
+        obj.LightIntensity = 3.0f;
+        break;
+    case FSceneObject::EType::SkyAtmosphere:
+        obj.Radius = 0.45f;
+        obj.Scale = { 0.28f, 0.28f, 0.28f };
+        obj.Albedo = { 0.20f, 0.45f, 0.95f };
+        obj.Roughness = 0.75f;
+        break;
     }
     obj.Metallic = 0.0f;
     obj.Roughness = 0.35f;
@@ -2115,9 +2549,17 @@ editor::FLevelFile FEngine::BuildLevelFile() const
 {
     editor::FLevelFile level{};
     level.Name = CurrentLevelName;
-    level.SunYaw = SunYaw;
-    level.SunPitch = SunPitch;
-    level.SunIntensity = SunIntensity;
+    if (const FSceneObject* sun = FindActiveSunLight())
+    {
+        SunPositionToAngles(sun->Position, level.SunYaw, level.SunPitch);
+        level.SunIntensity = sun->LightIntensity;
+    }
+    else
+    {
+        level.SunYaw = SunYaw;
+        level.SunPitch = SunPitch;
+        level.SunIntensity = SunIntensity;
+    }
     for (const FSceneObject& object : Objects)
     {
         editor::FLevelObjectFile out{};
@@ -2131,6 +2573,12 @@ editor::FLevelFile FEngine::BuildLevelFile() const
         out.Albedo = object.Albedo;
         out.Metallic = object.Metallic;
         out.Roughness = object.Roughness;
+        out.LightIntensity = object.LightIntensity;
+        out.SkyEnabled = object.SkyEnabled;
+        out.RayleighScale = object.RayleighScale;
+        out.MieScale = object.MieScale;
+        out.MieG = object.MieG;
+        out.AtmosphereHeight = object.AtmosphereHeight;
         level.Objects.push_back(out);
     }
     return level;
@@ -2158,6 +2606,12 @@ void FEngine::ApplyLevelFile(const editor::FLevelFile& level, const std::filesys
         object.Albedo = in.Albedo;
         object.Metallic = in.Metallic;
         object.Roughness = in.Roughness;
+        object.LightIntensity = in.LightIntensity;
+        object.SkyEnabled = in.SkyEnabled;
+        object.RayleighScale = in.RayleighScale;
+        object.MieScale = in.MieScale;
+        object.MieG = in.MieG;
+        object.AtmosphereHeight = in.AtmosphereHeight;
         object.MaterialPath = in.Material;
         if (type == FSceneObject::EType::StaticMesh)
         {
@@ -2173,6 +2627,7 @@ void FEngine::ApplyLevelFile(const editor::FLevelFile& level, const std::filesys
             ApplyMaterialToObject((int)Objects.size() - 1, matIndex);
         NextObjectId = std::max(NextObjectId, object.Id + 1);
     }
+    EnsureDefaultEnvironmentActors();
     CurrentLevelPath = path;
     CurrentLevelName = level.Name.empty() ? path.stem().wstring() : level.Name;
     bLevelDirty = false;
@@ -2189,6 +2644,8 @@ std::wstring FEngine::SceneObjectTypeToString(FSceneObject::EType type)
     case FSceneObject::EType::Cone: return L"Cone";
     case FSceneObject::EType::RenderDocRock: return L"RenderDoc Rock";
     case FSceneObject::EType::StaticMesh: return L"Static Mesh";
+    case FSceneObject::EType::SunLight: return L"Sun Light";
+    case FSceneObject::EType::SkyAtmosphere: return L"Sky Atmosphere";
     default: return L"Object";
     }
 }
@@ -2199,6 +2656,8 @@ FSceneObject::EType FEngine::SceneObjectTypeFromString(const std::wstring& type)
     if (type == L"Cone") return FSceneObject::EType::Cone;
     if (type == L"RenderDoc Rock") return FSceneObject::EType::RenderDocRock;
     if (type == L"Static Mesh") return FSceneObject::EType::StaticMesh;
+    if (type == L"Sun Light") return FSceneObject::EType::SunLight;
+    if (type == L"Sky Atmosphere" || type == L"SkyAtmosphere") return FSceneObject::EType::SkyAtmosphere;
     return FSceneObject::EType::Sphere;
 }
 
@@ -2228,6 +2687,20 @@ void FEngine::ApplyDetailsEdits()
     object.Scale.x = std::max(0.01f, getFloat(DetailScaleXEdit, object.Scale.x));
     object.Scale.y = std::max(0.01f, getFloat(DetailScaleYEdit, object.Scale.y));
     object.Scale.z = std::max(0.01f, getFloat(DetailScaleZEdit, object.Scale.z));
+    if (object.Type == FSceneObject::EType::SunLight)
+    {
+        object.LightIntensity = std::max(0.0f, getFloat(DetailIntensityEdit, object.LightIntensity));
+    }
+    else if (object.Type == FSceneObject::EType::SkyAtmosphere)
+    {
+        object.SkyEnabled = DetailSkyEnabledCheckbox
+            ? (SendMessageW(DetailSkyEnabledCheckbox, BM_GETCHECK, 0, 0) == BST_CHECKED)
+            : object.SkyEnabled;
+        object.RayleighScale = std::max(0.0f, getFloat(DetailRayleighEdit, object.RayleighScale));
+        object.MieScale = std::max(0.0f, getFloat(DetailMieEdit, object.MieScale));
+        object.MieG = Clamp(getFloat(DetailMieGEdit, object.MieG), 0.0f, 0.99f);
+        object.AtmosphereHeight = std::max(0.5f, getFloat(DetailAtmosphereHeightEdit, object.AtmosphereHeight));
+    }
     MarkLevelDirty();
     RefreshOutliner();
     RefreshDetailsPanel();
@@ -2447,6 +2920,109 @@ void FEngine::ApplyMaterialEditorChanges()
     MarkLevelDirty();
 }
 
+void FEngine::OpenRenderSettingsDialog()
+{
+    if (!RenderSettingsHwnd)
+    {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = &FEngine::RenderSettingsWndProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.lpszClassName = L"DX12RenderSettingsWindow";
+        RegisterClassExW(&wc);
+
+        RenderSettingsHwnd = CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            wc.lpszClassName,
+            L"Render Settings",
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_SIZEBOX,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            360,
+            250,
+            Window.GetHwnd(),
+            nullptr,
+            wc.hInstance,
+            this);
+    }
+    if (!RenderSettingsHwnd)
+        return;
+
+    HWND controls[] = {
+        RenderSettingsLabel, RenderPathLabel, RenderPathCombo, RenderGILabel,
+        LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox, TonemapCheckbox
+    };
+    for (HWND h : controls)
+    {
+        if (!h) continue;
+        SetParent(h, RenderSettingsHwnd);
+        ApplyEditorFont(h, h == RenderSettingsLabel || h == RenderGILabel);
+        ShowWindow(h, SW_SHOW);
+    }
+
+    if (RenderSettingsLabel)
+        SetWindowTextW(RenderSettingsLabel, L"Render Settings");
+    SyncRenderSettingsControls();
+    LayoutRenderSettingsDialog();
+    ShowWindow(RenderSettingsHwnd, SW_SHOW);
+    SetForegroundWindow(RenderSettingsHwnd);
+}
+
+void FEngine::LayoutRenderSettingsDialog()
+{
+    if (!RenderSettingsHwnd)
+        return;
+
+    RECT rc{};
+    GetClientRect(RenderSettingsHwnd, &rc);
+    const int w = (int)(rc.right - rc.left);
+    const int pad = 14;
+    const int innerW = std::max(120, w - pad * 2);
+    int y = 12;
+
+    if (RenderSettingsLabel)
+        MoveWindow(RenderSettingsLabel, pad, y, innerW, 22, TRUE);
+    y += 34;
+
+    if (RenderPathLabel)
+        MoveWindow(RenderPathLabel, pad, y + 4, 88, 18, TRUE);
+    if (RenderPathCombo)
+        MoveWindow(RenderPathCombo, pad + 96, y, std::max(120, innerW - 96), 180, TRUE);
+    y += 34;
+
+    if (RenderGILabel)
+        MoveWindow(RenderGILabel, pad, y, innerW, 22, TRUE);
+    y += 30;
+
+    if (LumenCheckbox)
+        MoveWindow(LumenCheckbox, pad, y, innerW, 22, TRUE);
+    y += 26;
+    if (LumenSWRTCheckbox)
+        MoveWindow(LumenSWRTCheckbox, pad, y, innerW, 22, TRUE);
+    y += 26;
+    if (LumenHWRTCheckbox)
+        MoveWindow(LumenHWRTCheckbox, pad, y, innerW, 22, TRUE);
+    y += 32;
+
+    if (TonemapCheckbox)
+        MoveWindow(TonemapCheckbox, pad, y, innerW, 22, TRUE);
+}
+
+void FEngine::SyncRenderSettingsControls()
+{
+    if (RenderPathCombo)
+        SendMessageW(RenderPathCombo, CB_SETCURSEL, (WPARAM)((RenderPath == FSimpleSceneRenderer::ERenderPath::Deferred) ? 1 : 0), 0);
+    if (LumenCheckbox)
+        SendMessageW(LumenCheckbox, BM_SETCHECK, bEnableLumen ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (LumenSWRTCheckbox)
+        SendMessageW(LumenSWRTCheckbox, BM_SETCHECK, bEnableLumenSWRT ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (LumenHWRTCheckbox)
+        SendMessageW(LumenHWRTCheckbox, BM_SETCHECK, bEnableLumenHWRT ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (TonemapCheckbox)
+        SendMessageW(TonemapCheckbox, BM_SETCHECK, bEnableTonemap ? BST_CHECKED : BST_UNCHECKED, 0);
+}
+
 /**
  * @brief 重新布局侧栏、视口与底部面板的控件。
  * @param 无。
@@ -2462,12 +3038,9 @@ void FEngine::LayoutUI()
     GetClientRect(Window.GetHwnd(), &rc);
     const int clientW = (int)(rc.right - rc.left);
     const int clientH = (int)(rc.bottom - rc.top);
+    const int bottomPanelH = (clientH < 850) ? 160 : BottomPanelHeightPx;
     const int viewportW = std::max(1, clientW - SidebarWidthPx - RightPanelWidthPx);
-    const int viewportH = std::max(1, clientH - TopToolbarHeightPx - BottomPanelHeightPx);
-
-    const int sidebarH = viewportH;
-    const int titleH = 22;
-    const int paletteH = std::min(120, sidebarH);
+    const int viewportH = std::max(1, clientH - TopToolbarHeightPx - bottomPanelH);
 
     // 顶部标题与物体列表区域。
     if (ToolbarPanel)
@@ -2486,51 +3059,87 @@ void FEngine::LayoutUI()
     toolbarButton(ToolbarSaveLevelBtn, 76);
     toolbarButton(ToolbarImportObjBtn, 92);
     toolbarButton(ToolbarPlaceBtn, 72);
+    toolbarButton(ToolbarSettingsBtn, 82);
     if (StatusLabel)
         MoveWindow(StatusLabel, tbX + 10, 8, std::max(120, clientW - tbX - 18), 20, TRUE);
 
     const int contentTop = TopToolbarHeightPx;
 
-    if (EngineNameLabel)
-        MoveWindow(EngineNameLabel, 0, contentTop, SidebarWidthPx, titleH, TRUE);
-    if (SidebarList)
-        MoveWindow(SidebarList, 0, contentTop + titleH, SidebarWidthPx, std::max(1, paletteH - titleH), TRUE);
+    const int sidePad = 10;
+    const int innerX = sidePad;
+    const int innerW = SidebarWidthPx - sidePad * 2;
+    const int headerH = 20;
+    const int rowH = 24;
+    int sy = 8;
 
-    // Sidebar controls live below the palette list (in main window coordinates).
-    const int sidebarX = 0;
-    const int baseY = paletteH + 8;
-    const int innerW = SidebarWidthPx - 16;
-
-    // 统一摆放侧栏控件。
-    auto place = [&](HWND h, int y, int hgt)
+    auto placeSide = [&](HWND h, int y, int w, int hgt)
     {
         if (!h) return;
-        MoveWindow(h, sidebarX + 8, contentTop + baseY + y, innerW, hgt, TRUE);
+        MoveWindow(h, innerX, contentTop + y, w, hgt, TRUE);
+    };
+    auto placeSliderRow = [&](HWND label, HWND value, HWND slider, int y)
+    {
+        const int labelW = 110;
+        const int valueW = 48;
+        const int sliderW = std::max(60, innerW - labelW - valueW - 8);
+        placeSide(label, y + 4, labelW, 16);
+        if (value)
+            MoveWindow(value, innerX + innerW - valueW, contentTop + y + 4, valueW, 16, TRUE);
+        if (slider)
+            MoveWindow(slider, innerX + labelW, contentTop + y, sliderW, 24, TRUE);
     };
 
-    place(RenderPathLabel, 0, 16);
-    place(RenderPathCombo, 18, 24);
-    place(LumenCheckbox, 44, 20);
-    place(LumenSWRTCheckbox, 66, 20);
-    place(LumenHWRTCheckbox, 88, 20);
+    placeSide(EngineNameLabel, sy, innerW, headerH);
+    sy += headerH + 6;
+    placeSide(SidebarBasicLabel, sy, innerW, 18);
+    sy += 20;
+    placeSide(SidebarList, sy, innerW, 156);
 
-    const int yOff = 114;
-    place(SkyEnableCheckbox, yOff + 0, 20);
-    place(SunYawLabel, yOff + 24, 16);
-    place(SunYawSlider, yOff + 40, 26);
-    place(SunPitchLabel, yOff + 66, 16);
-    place(SunPitchSlider, yOff + 82, 26);
-    place(SunIntensityLabel, yOff + 108, 16);
-    place(SunIntensitySlider, yOff + 124, 26);
-    place(RayleighLabel, yOff + 150, 16);
-    place(RayleighSlider, yOff + 166, 26);
-    place(MieLabel, yOff + 192, 16);
-    place(MieSlider, yOff + 208, 26);
-    place(MieGLabel, yOff + 234, 16);
-    place(MieGSlider, yOff + 250, 26);
-    place(AtmoHeightLabel, yOff + 276, 16);
-    place(AtmoHeightSlider, yOff + 292, 26);
-    place(SkyLabel, yOff + 326, 62);
+    // Sidebar controls live below the palette list (in main window coordinates).
+    if (!RenderSettingsHwnd)
+    {
+    const int baseY = sy + 86;
+
+    // 统一摆放侧栏控件。
+    int cy = baseY;
+    placeSide(RenderSettingsLabel, cy, innerW, headerH);
+    cy += headerH + 2;
+    placeSide(RenderPathLabel, cy, 86, 16);
+    if (RenderPathCombo)
+        MoveWindow(RenderPathCombo, innerX + 92, contentTop + cy - 2, innerW - 92, 210, TRUE);
+    cy += 22;
+    placeSide(RenderGILabel, cy, innerW, 16);
+    cy += 16;
+    placeSide(LumenCheckbox, cy, innerW, 16);
+    cy += 16;
+    placeSide(LumenSWRTCheckbox, cy, innerW, 16);
+    cy += 16;
+    placeSide(LumenHWRTCheckbox, cy, innerW, 16);
+    cy += 18;
+
+    placeSide(SunSectionLabel, cy, innerW, headerH);
+    cy += headerH + 2;
+    placeSide(SkyEnableCheckbox, cy, innerW, 16);
+    cy += 18;
+    placeSliderRow(SunYawLabel, SunYawValueLabel, SunYawSlider, cy);
+    cy += rowH;
+    placeSliderRow(SunPitchLabel, SunPitchValueLabel, SunPitchSlider, cy);
+    cy += rowH;
+    placeSliderRow(SunIntensityLabel, SunIntensityValueLabel, SunIntensitySlider, cy);
+    cy += rowH + 2;
+
+    placeSide(AtmosphereSectionLabel, cy, innerW, headerH);
+    cy += headerH + 2;
+    placeSliderRow(RayleighLabel, RayleighValueLabel, RayleighSlider, cy);
+    cy += rowH;
+    placeSliderRow(MieLabel, MieValueLabel, MieSlider, cy);
+    cy += rowH;
+    placeSliderRow(MieGLabel, MieGValueLabel, MieGSlider, cy);
+    cy += rowH;
+    placeSliderRow(AtmoHeightLabel, AtmoHeightValueLabel, AtmoHeightSlider, cy);
+    cy += rowH + 2;
+    placeSide(SkyLabel, cy, innerW, 14);
+    }
 
     // 视口与底部面板布局。
     if (ViewportHwnd)
@@ -2567,54 +3176,110 @@ void FEngine::LayoutUI()
         MoveWindow(DetailScaleYEdit, rightX + 12 + editW, contentTop + detailsY + 134, editW, 22, TRUE);
     if (DetailScaleZEdit)
         MoveWindow(DetailScaleZEdit, rightX + 16 + editW * 2, contentTop + detailsY + 134, editW, 22, TRUE);
+    int applyY = detailsY + 166;
+    const int fullW = RightPanelWidthPx - 16;
+    const int fieldX = rightX + 8;
+    const int extraW = fullW;
+    const bool showSunDetails = SelectedIndex >= 0 && SelectedIndex < (int)Objects.size() && Objects[(size_t)SelectedIndex].Type == FSceneObject::EType::SunLight;
+    const bool showSkyDetails = SelectedIndex >= 0 && SelectedIndex < (int)Objects.size() && Objects[(size_t)SelectedIndex].Type == FSceneObject::EType::SkyAtmosphere;
+    if (showSunDetails)
+    {
+        if (DetailIntensityLabel)
+            MoveWindow(DetailIntensityLabel, fieldX, contentTop + applyY, extraW, 16, TRUE);
+        if (DetailIntensityEdit)
+            MoveWindow(DetailIntensityEdit, fieldX, contentTop + applyY + 18, extraW, 22, TRUE);
+        applyY += 48;
+    }
+    if (showSkyDetails)
+    {
+        if (DetailSkyEnabledCheckbox)
+            MoveWindow(DetailSkyEnabledCheckbox, fieldX, contentTop + applyY, extraW, 22, TRUE);
+        applyY += 28;
+        auto placeDetailRow = [&](HWND label, HWND edit)
+        {
+            if (label)
+                MoveWindow(label, fieldX, contentTop + applyY, extraW, 16, TRUE);
+            if (edit)
+                MoveWindow(edit, fieldX, contentTop + applyY + 18, extraW, 22, TRUE);
+            applyY += 46;
+        };
+        placeDetailRow(DetailRayleighLabel, DetailRayleighEdit);
+        placeDetailRow(DetailMieLabel, DetailMieEdit);
+        placeDetailRow(DetailMieGLabel, DetailMieGEdit);
+        placeDetailRow(DetailAtmosphereHeightLabel, DetailAtmosphereHeightEdit);
+    }
     if (ApplyDetailsBtn)
-        MoveWindow(ApplyDetailsBtn, rightX + 8, contentTop + detailsY + 166, RightPanelWidthPx - 16, 24, TRUE);
+        MoveWindow(ApplyDetailsBtn, rightX + 8, contentTop + applyY, RightPanelWidthPx - 16, 24, TRUE);
 
     if (BottomPanel)
-        MoveWindow(BottomPanel, 0, contentTop + viewportH, clientW, BottomPanelHeightPx, TRUE);
+        MoveWindow(BottomPanel, 0, contentTop + viewportH, clientW, bottomPanelH, TRUE);
 
     if (BottomPanel)
     {
         // 计算底栏三列布局并更新控件位置。
-        const int padding = 8;
-        const int colW = std::max(80, (clientW - padding * 5) / 4);
-        const int titleH2 = 18;
-        const int buttonH = 24;
-        const int listY = padding + titleH2 + 4;
-        const int listH = std::max(40, BottomPanelHeightPx - padding * 2 - titleH2 - buttonH - 10);
+        const int padding = 10;
+        const int headerH2 = 34;
+        const int buttonH = 26;
+        const int bodyY = headerH2 + 8;
+        const int bodyH = std::max(80, bottomPanelH - bodyY - padding);
+        const int bodyW = std::max(320, clientW - padding * 2);
+        const int foldersW = 180;
+        const int previewW = std::clamp(bodyW / 4, 280, 380);
+        const int gap = 10;
+        const int assetsW = std::max(220, bodyW - foldersW - previewW - gap * 2);
+        const int foldersX = padding;
+        const int assetsX = foldersX + foldersW + gap;
+        const int previewX = assetsX + assetsW + gap;
 
         if (ContentTitleLabel)
-            MoveWindow(ContentTitleLabel, padding, padding, colW, titleH2, TRUE);
-        if (ContentList)
-            MoveWindow(ContentList, padding, listY, colW, listH, TRUE);
-        if (ContentHintLabel)
-            MoveWindow(ContentHintLabel, padding, listY + listH + 2, colW, 16, TRUE);
-        if (ImportObjBtn)
-            MoveWindow(ImportObjBtn, padding, padding + titleH2 + listH + 22, colW / 2 - 2, buttonH, TRUE);
-        if (PlaceAssetBtn)
-            MoveWindow(PlaceAssetBtn, padding + colW / 2 + 2, padding + titleH2 + listH + 22, colW / 2 - 2, buttonH, TRUE);
+            MoveWindow(ContentTitleLabel, padding, 8, 170, 22, TRUE);
+        const int actionsW = 58 + 58 + 74 + 112 + 72 + 104 + 6 * 5;
+        const int actionLeft = clientW - padding - actionsW;
+        const int pathX = padding + 176;
+        const int pathW = std::max(80, actionLeft - pathX - 10);
+        if (ContentPathLabel)
+            MoveWindow(ContentPathLabel, pathX, 10, pathW, 18, TRUE);
+        if (TonemapCheckbox && GetParent(TonemapCheckbox) == BottomPanel)
+            MoveWindow(TonemapCheckbox, pathX + pathW + 10, 8, 96, buttonH, TRUE);
+
+        int actionX = clientW - padding;
+        auto rightButton = [&](HWND h, int width)
+        {
+            if (!h) return;
+            actionX -= width;
+            MoveWindow(h, actionX, 7, width, buttonH, TRUE);
+            actionX -= 6;
+        };
+        rightButton(SaveLevelBtn, 58);
+        rightButton(OpenLevelBtn, 58);
+        rightButton(NewLevelBtn, 74);
+        rightButton(NewMaterialBtn, 112);
+        rightButton(PlaceAssetBtn, 72);
+        rightButton(ImportObjBtn, 104);
+
         if (TextureTitleLabel)
-            MoveWindow(TextureTitleLabel, padding + colW + padding, padding, colW, titleH2, TRUE);
-        if (TextureList)
-            MoveWindow(TextureList, padding + colW + padding, listY, colW, listH, TRUE);
-        if (PreviewTitleLabel)
-            MoveWindow(PreviewTitleLabel, padding + (colW + padding) * 2, padding, colW, titleH2, TRUE);
-        if (TexturePreview)
-            MoveWindow(TexturePreview, padding + (colW + padding) * 2, listY, colW, listH, TRUE);
+            MoveWindow(TextureTitleLabel, foldersX, bodyY, foldersW, 20, TRUE);
+        if (ContentFoldersList)
+            MoveWindow(ContentFoldersList, foldersX, bodyY + 24, foldersW, bodyH - 24, TRUE);
         if (MaterialTitleLabel)
-            MoveWindow(MaterialTitleLabel, padding + (colW + padding) * 3, padding, colW, titleH2, TRUE);
+            MoveWindow(MaterialTitleLabel, assetsX, bodyY, assetsW, 20, TRUE);
+        if (ContentList)
+            MoveWindow(ContentList, assetsX, bodyY + 24, assetsW, bodyH - 46, TRUE);
+        if (ContentHintLabel)
+            MoveWindow(ContentHintLabel, assetsX, bodyY + bodyH - 18, assetsW, 18, TRUE);
+        if (PreviewTitleLabel)
+            MoveWindow(PreviewTitleLabel, previewX, bodyY, previewW, 20, TRUE);
+        const int previewH = std::max(82, bodyH / 2);
+        if (TexturePreview)
+            MoveWindow(TexturePreview, previewX, bodyY + 24, previewW, previewH - 24, TRUE);
+        if (ContentActionsLabel)
+            MoveWindow(ContentActionsLabel, previewX, bodyY + previewH + 6, previewW, 18, TRUE);
+        const int loadedY = bodyY + previewH + 28;
+        const int loadedH = std::max(40, bodyH - previewH - 28);
+        if (TextureList)
+            MoveWindow(TextureList, previewX, loadedY, previewW / 2 - 4, loadedH, TRUE);
         if (MaterialList)
-            MoveWindow(MaterialList, padding + (colW + padding) * 3, listY, colW, listH, TRUE);
-        if (NewMaterialBtn)
-            MoveWindow(NewMaterialBtn, padding + (colW + padding) * 3, padding + titleH2 + listH + 22, colW / 2 - 2, buttonH, TRUE);
-        if (TonemapCheckbox)
-            MoveWindow(TonemapCheckbox, padding + (colW + padding) * 2, padding + titleH2 + listH + 22, colW, buttonH, TRUE);
-        if (NewLevelBtn)
-            MoveWindow(NewLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2, padding + titleH2 + listH + 22, (colW / 2 - 2) / 3, buttonH, TRUE);
-        if (OpenLevelBtn)
-            MoveWindow(OpenLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + (colW / 2 - 2) / 3 + 2, padding + titleH2 + listH + 22, (colW / 2 - 2) / 3, buttonH, TRUE);
-        if (SaveLevelBtn)
-            MoveWindow(SaveLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + ((colW / 2 - 2) / 3 + 2) * 2, padding + titleH2 + listH + 22, (colW / 2 - 2) / 3, buttonH, TRUE);
+            MoveWindow(MaterialList, previewX + previewW / 2 + 4, loadedY, previewW / 2 - 4, loadedH, TRUE);
     }
 
     // 同步 RHI 尺寸。
@@ -2640,28 +3305,42 @@ void FEngine::LayoutUI()
     bringTop(ToolbarSaveLevelBtn);
     bringTop(ToolbarImportObjBtn);
     bringTop(ToolbarPlaceBtn);
+    bringTop(ToolbarSettingsBtn);
     bringTop(StatusLabel);
     bringTop(SidebarList);
     bringTop(EngineNameLabel);
+    bringTop(SidebarBasicLabel);
+    bringTop(SidebarRenderDocLabel);
+    bringTop(RenderSettingsLabel);
     bringTop(RenderPathLabel);
     bringTop(RenderPathCombo);
+    bringTop(RenderGILabel);
     bringTop(LumenCheckbox);
     bringTop(LumenSWRTCheckbox);
     bringTop(LumenHWRTCheckbox);
+    bringTop(SunSectionLabel);
+    bringTop(AtmosphereSectionLabel);
     bringTop(SkyEnableCheckbox);
     bringTop(SunYawLabel);
+    bringTop(SunYawValueLabel);
     bringTop(SunYawSlider);
     bringTop(SunPitchLabel);
+    bringTop(SunPitchValueLabel);
     bringTop(SunPitchSlider);
     bringTop(SunIntensityLabel);
+    bringTop(SunIntensityValueLabel);
     bringTop(SunIntensitySlider);
     bringTop(RayleighLabel);
+    bringTop(RayleighValueLabel);
     bringTop(RayleighSlider);
     bringTop(MieLabel);
+    bringTop(MieValueLabel);
     bringTop(MieSlider);
     bringTop(MieGLabel);
+    bringTop(MieGValueLabel);
     bringTop(MieGSlider);
     bringTop(AtmoHeightLabel);
+    bringTop(AtmoHeightValueLabel);
     bringTop(AtmoHeightSlider);
     bringTop(SkyLabel);
     bringTop(RightPanel);
@@ -2678,13 +3357,38 @@ void FEngine::LayoutUI()
     bringTop(DetailScaleXEdit);
     bringTop(DetailScaleYEdit);
     bringTop(DetailScaleZEdit);
+    bringTop(DetailIntensityLabel);
+    bringTop(DetailIntensityEdit);
+    bringTop(DetailSkyEnabledCheckbox);
+    bringTop(DetailRayleighLabel);
+    bringTop(DetailRayleighEdit);
+    bringTop(DetailMieLabel);
+    bringTop(DetailMieEdit);
+    bringTop(DetailMieGLabel);
+    bringTop(DetailMieGEdit);
+    bringTop(DetailAtmosphereHeightLabel);
+    bringTop(DetailAtmosphereHeightEdit);
     bringTop(ApplyDetailsBtn);
     bringTop(BottomPanel);
     bringTop(ContentTitleLabel);
     bringTop(TextureTitleLabel);
     bringTop(PreviewTitleLabel);
     bringTop(MaterialTitleLabel);
+    bringTop(ContentPathLabel);
+    bringTop(ContentActionsLabel);
+    bringTop(ContentFoldersList);
+    bringTop(ContentList);
+    bringTop(TextureList);
+    bringTop(TexturePreview);
+    bringTop(MaterialList);
     bringTop(ContentHintLabel);
+    bringTop(ImportObjBtn);
+    bringTop(PlaceAssetBtn);
+    bringTop(NewMaterialBtn);
+    bringTop(TonemapCheckbox);
+    bringTop(NewLevelBtn);
+    bringTop(OpenLevelBtn);
+    bringTop(SaveLevelBtn);
 }
 
 /**
@@ -2729,14 +3433,30 @@ void FEngine::UpdateSkyUI()
     if (SkyEnableCheckbox)
         SendMessageW(SkyEnableCheckbox, BM_SETCHECK, SkySettings.Enable ? BST_CHECKED : BST_UNCHECKED, 0);
 
+    auto setValue = [](HWND h, const wchar_t* fmt, float v)
+    {
+        if (!h) return;
+        wchar_t value[64];
+        swprintf_s(value, fmt, v);
+        SetWindowTextW(h, value);
+    };
+
+    const float yawDeg = SunYaw * 180.0f / DirectX::XM_PI;
+    const float pitchDeg = SunPitch * 180.0f / DirectX::XM_PI;
+    setValue(SunYawValueLabel, L"%.1f", yawDeg);
+    setValue(SunPitchValueLabel, L"%.1f", pitchDeg);
+    setValue(SunIntensityValueLabel, L"%.2f", SunIntensity);
+    setValue(RayleighValueLabel, L"%.2f", SkySettings.RayleighScale);
+    setValue(MieValueLabel, L"%.2f", SkySettings.MieScale);
+    setValue(MieGValueLabel, L"%.2f", SkySettings.MieG);
+    setValue(AtmoHeightValueLabel, L"%.2f", SkySettings.AtmosphereHeight);
+
     // 更新状态文本。
     if (SkyLabel)
     {
         wchar_t buf[256];
-        const float yawDeg = SunYaw * 180.0f / DirectX::XM_PI;
-        const float pitchDeg = SunPitch * 180.0f / DirectX::XM_PI;
-        swprintf_s(buf, L"Yaw=%.1f  Pitch=%.1f\nI=%.2f  R=%.2f  M=%.2f  g=%.2f\nH=%.2f",
-                   yawDeg, pitchDeg, SunIntensity, SkySettings.RayleighScale, SkySettings.MieScale, SkySettings.MieG, SkySettings.AtmosphereHeight);
+        swprintf_s(buf, L"Sky %s    Direction %.1f / %.1f    Intensity %.2f",
+                   SkySettings.Enable ? L"On" : L"Off", yawDeg, pitchDeg, SunIntensity);
         SetWindowTextW(SkyLabel, buf);
     }
 }
@@ -2808,13 +3528,36 @@ void FEngine::Tick(float dtSeconds)
     // 太阳方向快捷键控制（J/L 偏航，I/K 俯仰）。
     // Sun direction controls (J/L yaw, I/K pitch)
     const float sunSpeed = 1.2f * dtSeconds;
-    if (Input.Keys['J']) SunYaw -= sunSpeed;
-    if (Input.Keys['L']) SunYaw += sunSpeed;
-    if (Input.Keys['I']) SunPitch += sunSpeed;
-    if (Input.Keys['K']) SunPitch -= sunSpeed;
-    SunPitch = Clamp(SunPitch, -DirectX::XM_PIDIV2 + 0.05f, DirectX::XM_PIDIV2 - 0.05f);
     if (Input.Keys['J'] || Input.Keys['L'] || Input.Keys['I'] || Input.Keys['K'])
-        UpdateSkyUI();
+    {
+        float yaw = SunYaw;
+        float pitch = SunPitch;
+        float distance = 10.0f;
+        if (FSceneObject* sun = FindActiveSunLight())
+        {
+            SunPositionToAngles(sun->Position, yaw, pitch);
+            const XMVECTOR p = XMLoadFloat3(&sun->Position);
+            distance = std::max(0.5f, XMVectorGetX(XMVector3Length(p)));
+            if (Input.Keys['J']) yaw -= sunSpeed;
+            if (Input.Keys['L']) yaw += sunSpeed;
+            if (Input.Keys['I']) pitch += sunSpeed;
+            if (Input.Keys['K']) pitch -= sunSpeed;
+            pitch = Clamp(pitch, -DirectX::XM_PIDIV2 + 0.05f, DirectX::XM_PIDIV2 - 0.05f);
+            sun->Position = DirectionToSunPosition(yaw, pitch, distance);
+            MarkLevelDirty();
+            if (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size() && &Objects[(size_t)SelectedIndex] == sun)
+                RefreshDetailsPanel();
+        }
+        else
+        {
+            if (Input.Keys['J']) SunYaw -= sunSpeed;
+            if (Input.Keys['L']) SunYaw += sunSpeed;
+            if (Input.Keys['I']) SunPitch += sunSpeed;
+            if (Input.Keys['K']) SunPitch -= sunSpeed;
+            SunPitch = Clamp(SunPitch, -DirectX::XM_PIDIV2 + 0.05f, DirectX::XM_PIDIV2 - 0.05f);
+            UpdateSkyUI();
+        }
+    }
 
     // 视口内的选取/放置/Gizmo 拖拽（左键）。
     // Selection + placement + gizmo drag (left mouse) in viewport
@@ -3074,6 +3817,11 @@ void FEngine::Run(HINSTANCE hInstance)
         -16, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    UIBackgroundBrush = CreateSolidBrush(kEditorBackground);
+    UIPanelBrush = CreateSolidBrush(kEditorPanel);
+    UIHeaderBrush = CreateSolidBrush(kEditorHeader);
+    UIListBrush = CreateSolidBrush(kEditorList);
+    UIEditBrush = CreateSolidBrush(kEditorEdit);
 
     // 创建主窗口与侧栏、视口基础。
     const wchar_t* baseTitle = L"ShellEngine";
@@ -3088,14 +3836,18 @@ void FEngine::Run(HINSTANCE hInstance)
     ToolbarSaveLevelBtn = CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, 6, 76, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_SAVE_LEVEL), GetModuleHandleW(nullptr), nullptr);
     ToolbarImportObjBtn = CreateWindowExW(0, L"BUTTON", L"Import OBJ", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 452, 6, 92, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_IMPORT_OBJ), GetModuleHandleW(nullptr), nullptr);
     ToolbarPlaceBtn = CreateWindowExW(0, L"BUTTON", L"Place", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 550, 6, 72, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_PLACE), GetModuleHandleW(nullptr), nullptr);
-    StatusLabel = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP, 638, 8, 600, 20, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+    ToolbarSettingsBtn = CreateWindowExW(0, L"BUTTON", L"Settings", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 628, 6, 82, 24, Window.GetHwnd(), MenuHandle(IDC_TOOLBAR_SETTINGS), GetModuleHandleW(nullptr), nullptr);
+    StatusLabel = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFTNOWORDWRAP, 724, 8, 520, 20, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
     ApplyEditorFont(ToolbarTitle, true);
     ApplyEditorFont(ToolbarNewLevelBtn);
     ApplyEditorFont(ToolbarOpenLevelBtn);
     ApplyEditorFont(ToolbarSaveLevelBtn);
     ApplyEditorFont(ToolbarImportObjBtn);
     ApplyEditorFont(ToolbarPlaceBtn);
+    ApplyEditorFont(ToolbarSettingsBtn);
     ApplyEditorFont(StatusLabel);
+    SetWindowLongPtrW(ToolbarSettingsBtn, GWLP_USERDATA, (LONG_PTR)this);
+    ToolbarSettingsOldProc = (WNDPROC)SetWindowLongPtrW(ToolbarSettingsBtn, GWLP_WNDPROC, (LONG_PTR)&FEngine::ToolbarSettingsWndProc);
 
     // Sidebar listbox (native Win32 UI)
     EngineNameLabel = CreateWindowExW(
@@ -3112,6 +3864,9 @@ void FEngine::Run(HINSTANCE hInstance)
         GetModuleHandleW(nullptr),
         nullptr);
     ApplyEditorFont(EngineNameLabel, true);
+    SidebarBasicLabel = CreateEditorLabel(L"Actor Palette", Window.GetHwnd(), true);
+    SidebarRenderDocLabel = CreateEditorLabel(L"RenderDoc Captures", Window.GetHwnd(), true);
+    ShowWindow(SidebarRenderDocLabel, SW_HIDE);
 
     SidebarList = CreateWindowExW(
         0,
@@ -3127,10 +3882,12 @@ void FEngine::Run(HINSTANCE hInstance)
         GetModuleHandleW(nullptr),
         nullptr);
     ApplyEditorFont(SidebarList);
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Sphere");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Box");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Cone");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"RenderDoc Rock");
+    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Basic    Sphere");
+    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Basic    Box");
+    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Basic    Cone");
+    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Environment    Sun Light");
+    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Environment    Sky Atmosphere");
+    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"RenderDoc    Rock");
     SendMessageW(SidebarList, LB_SETCURSEL, 0, 0);
 
     // Subclass sidebar to support drag-to-place
@@ -3139,6 +3896,8 @@ void FEngine::Run(HINSTANCE hInstance)
 
     // Sidebar: render path selector
     {
+        RenderSettingsLabel = CreateEditorLabel(L"Render & Environment", Window.GetHwnd(), true);
+        RenderGILabel = CreateEditorLabel(L"Global Illumination", Window.GetHwnd(), true);
         RenderPathLabel = CreateWindowExW(
             0, L"STATIC", L"Render Path",
             WS_CHILD | WS_VISIBLE,
@@ -3186,6 +3945,9 @@ void FEngine::Run(HINSTANCE hInstance)
         SkySettings.MieG = 0.8f;
         SkySettings.GroundAlbedo = 0.2f;
 
+        SunSectionLabel = CreateEditorLabel(L"Sun", Window.GetHwnd(), true);
+        AtmosphereSectionLabel = CreateEditorLabel(L"Atmosphere", Window.GetHwnd(), true);
+
         SkyEnableCheckbox = CreateWindowExW(
             0, L"BUTTON", L"SkyAtmosphere",
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
@@ -3199,36 +3961,43 @@ void FEngine::Run(HINSTANCE hInstance)
         };
 
         SunYawLabel = CreateWindowExW(0, L"STATIC", L"Sun Yaw", WS_CHILD | WS_VISIBLE, 8, 154, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        SunYawValueLabel = CreateEditorLabel(L"", Window.GetHwnd());
         SunYawSlider = makeSlider(170, 3002);
         SendMessageW(SunYawSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 3600));
         SendMessageW(SunYawSlider, TBM_SETTICFREQ, 300, 0);
 
         SunPitchLabel = CreateWindowExW(0, L"STATIC", L"Sun Pitch", WS_CHILD | WS_VISIBLE, 8, 196, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        SunPitchValueLabel = CreateEditorLabel(L"", Window.GetHwnd());
         SunPitchSlider = makeSlider(212, 3003);
         SendMessageW(SunPitchSlider, TBM_SETRANGE, TRUE, MAKELPARAM(-890, 890));
         SendMessageW(SunPitchSlider, TBM_SETTICFREQ, 200, 0);
 
         SunIntensityLabel = CreateWindowExW(0, L"STATIC", L"Sun Intensity", WS_CHILD | WS_VISIBLE, 8, 238, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        SunIntensityValueLabel = CreateEditorLabel(L"", Window.GetHwnd());
         SunIntensitySlider = makeSlider(254, 3004);
         SendMessageW(SunIntensitySlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 2000)); // 0..20
         SendMessageW(SunIntensitySlider, TBM_SETTICFREQ, 200, 0);
 
         RayleighLabel = CreateWindowExW(0, L"STATIC", L"Rayleigh", WS_CHILD | WS_VISIBLE, 8, 280, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        RayleighValueLabel = CreateEditorLabel(L"", Window.GetHwnd());
         RayleighSlider = makeSlider(296, 3005);
         SendMessageW(RayleighSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 3000)); // 0..3
         SendMessageW(RayleighSlider, TBM_SETTICFREQ, 500, 0);
 
         MieLabel = CreateWindowExW(0, L"STATIC", L"Mie", WS_CHILD | WS_VISIBLE, 8, 322, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        MieValueLabel = CreateEditorLabel(L"", Window.GetHwnd());
         MieSlider = makeSlider(338, 3006);
         SendMessageW(MieSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 3000)); // 0..3
         SendMessageW(MieSlider, TBM_SETTICFREQ, 500, 0);
 
         MieGLabel = CreateWindowExW(0, L"STATIC", L"Mie G", WS_CHILD | WS_VISIBLE, 8, 364, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        MieGValueLabel = CreateEditorLabel(L"", Window.GetHwnd());
         MieGSlider = makeSlider(380, 3007);
         SendMessageW(MieGSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 990)); // 0..0.99
         SendMessageW(MieGSlider, TBM_SETTICFREQ, 165, 0);
 
         AtmoHeightLabel = CreateWindowExW(0, L"STATIC", L"Atmosphere Height", WS_CHILD | WS_VISIBLE, 8, 406, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        AtmoHeightValueLabel = CreateEditorLabel(L"", Window.GetHwnd());
         AtmoHeightSlider = makeSlider(422, 3008);
         SendMessageW(AtmoHeightSlider, TBM_SETRANGE, TRUE, MAKELPARAM(50, 3000)); // 0.5..30.0
         SendMessageW(AtmoHeightSlider, TBM_SETTICFREQ, 500, 0);
@@ -3245,6 +4014,20 @@ void FEngine::Run(HINSTANCE hInstance)
         };
         for (HWND h : fontTargets)
             ApplyEditorFont(h);
+        HWND hiddenLeftControls[] = {
+            RenderSettingsLabel, RenderGILabel, RenderPathLabel, RenderPathCombo,
+            LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox,
+            SkyEnableCheckbox, SunYawLabel, SunYawValueLabel, SunYawSlider,
+            SunPitchLabel, SunPitchValueLabel, SunPitchSlider,
+            SunIntensityLabel, SunIntensityValueLabel, SunIntensitySlider,
+            RayleighLabel, RayleighValueLabel, RayleighSlider,
+            MieLabel, MieValueLabel, MieSlider,
+            MieGLabel, MieGValueLabel, MieGSlider,
+            AtmoHeightLabel, AtmoHeightValueLabel, AtmoHeightSlider,
+            SunSectionLabel, AtmosphereSectionLabel, SkyLabel
+        };
+        for (HWND h : hiddenLeftControls)
+            if (h) ShowWindow(h, SW_HIDE);
     }
 
     // Viewport child window (swapchain host)
@@ -3318,6 +4101,17 @@ void FEngine::Run(HINSTANCE hInstance)
         DetailScaleXEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailScaleYEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 88, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailScaleZEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 168, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailIntensityLabel = CreateWindowExW(0, L"STATIC", L"Intensity", WS_CHILD | WS_VISIBLE, rightX + 8, 382, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailIntensityEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 400, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailSkyEnabledCheckbox = CreateWindowExW(0, L"BUTTON", L"Enable Sky Atmosphere", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, rightX + 8, 382, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailRayleighLabel = CreateWindowExW(0, L"STATIC", L"Rayleigh Scale", WS_CHILD | WS_VISIBLE, rightX + 8, 408, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailRayleighEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 426, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailMieLabel = CreateWindowExW(0, L"STATIC", L"Mie Scale", WS_CHILD | WS_VISIBLE, rightX + 8, 452, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailMieEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 470, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailMieGLabel = CreateWindowExW(0, L"STATIC", L"Mie G", WS_CHILD | WS_VISIBLE, rightX + 8, 496, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailMieGEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 514, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailAtmosphereHeightLabel = CreateWindowExW(0, L"STATIC", L"Atmosphere Height", WS_CHILD | WS_VISIBLE, rightX + 8, 540, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailAtmosphereHeightEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 558, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         ApplyDetailsBtn = CreateWindowExW(0, L"BUTTON", L"Apply Details", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, rightX + 8, 386, RightPanelWidthPx - 16, 24, Window.GetHwnd(), MenuHandle(IDC_APPLY_DETAILS), GetModuleHandleW(nullptr), nullptr);
         ApplyEditorFont(OutlinerLabel, true);
         ApplyEditorFont(OutlinerList);
@@ -3332,6 +4126,17 @@ void FEngine::Run(HINSTANCE hInstance)
         ApplyEditorFont(DetailScaleXEdit);
         ApplyEditorFont(DetailScaleYEdit);
         ApplyEditorFont(DetailScaleZEdit);
+        ApplyEditorFont(DetailIntensityLabel);
+        ApplyEditorFont(DetailIntensityEdit);
+        ApplyEditorFont(DetailSkyEnabledCheckbox);
+        ApplyEditorFont(DetailRayleighLabel);
+        ApplyEditorFont(DetailRayleighEdit);
+        ApplyEditorFont(DetailMieLabel);
+        ApplyEditorFont(DetailMieEdit);
+        ApplyEditorFont(DetailMieGLabel);
+        ApplyEditorFont(DetailMieGEdit);
+        ApplyEditorFont(DetailAtmosphereHeightLabel);
+        ApplyEditorFont(DetailAtmosphereHeightEdit);
         ApplyEditorFont(ApplyDetailsBtn);
     }
 
@@ -3353,10 +4158,24 @@ void FEngine::Run(HINSTANCE hInstance)
         const int colW = (clientW - padding * 5) / 4;
         const int listH = BottomPanelHeightPx - padding * 2 - 26;
 
-        ContentTitleLabel = CreateWindowExW(0, L"STATIC", L"Content Browser", WS_CHILD | WS_VISIBLE, padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
-        TextureTitleLabel = CreateWindowExW(0, L"STATIC", L"Textures", WS_CHILD | WS_VISIBLE, padding + colW + padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
-        PreviewTitleLabel = CreateWindowExW(0, L"STATIC", L"Texture Preview", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 2, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
-        MaterialTitleLabel = CreateWindowExW(0, L"STATIC", L"Materials / Level", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 3, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        ContentTitleLabel = CreateWindowExW(0, L"STATIC", L"Content Drawer", WS_CHILD | WS_VISIBLE, padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        TextureTitleLabel = CreateWindowExW(0, L"STATIC", L"Folders", WS_CHILD | WS_VISIBLE, padding + colW + padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        PreviewTitleLabel = CreateWindowExW(0, L"STATIC", L"Inspector", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 2, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        MaterialTitleLabel = CreateWindowExW(0, L"STATIC", L"Assets", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 3, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        ContentPathLabel = CreateWindowExW(0, L"STATIC", L"Content / Models", WS_CHILD | WS_VISIBLE, padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        ContentActionsLabel = CreateWindowExW(0, L"STATIC", L"Loaded Textures / Materials", WS_CHILD | WS_VISIBLE, padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+
+        ContentFoldersList = CreateWindowExW(
+            WS_EX_CLIENTEDGE, L"LISTBOX", nullptr,
+            WS_CHILD | WS_VISIBLE | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+            padding, padding,
+            colW, listH,
+            BottomPanel, MenuHandle(IDC_CONTENT_FOLDERS), GetModuleHandleW(nullptr), nullptr);
+        SendMessageW(ContentFoldersList, LB_ADDSTRING, 0, (LPARAM)L"Models");
+        SendMessageW(ContentFoldersList, LB_ADDSTRING, 0, (LPARAM)L"Textures");
+        SendMessageW(ContentFoldersList, LB_ADDSTRING, 0, (LPARAM)L"Materials");
+        SendMessageW(ContentFoldersList, LB_ADDSTRING, 0, (LPARAM)L"Levels");
+        SendMessageW(ContentFoldersList, LB_SETCURSEL, (WPARAM)static_cast<int>(ContentFilter), 0);
 
         ContentList = CreateWindowExW(
             0, L"LISTBOX", nullptr,
@@ -3415,6 +4234,7 @@ void FEngine::Run(HINSTANCE hInstance)
             colW, 22,
             BottomPanel, (HMENU)2005, GetModuleHandleW(nullptr), nullptr);
         SendMessageW(TonemapCheckbox, BM_SETCHECK, bEnableTonemap ? BST_CHECKED : BST_UNCHECKED, 0);
+        ShowWindow(TonemapCheckbox, SW_HIDE);
 
         const int levelButtonW = std::max(24, (colW / 2 - 8) / 3);
         NewLevelBtn = CreateWindowExW(0, L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
@@ -3428,12 +4248,12 @@ void FEngine::Run(HINSTANCE hInstance)
             BottomPanel, MenuHandle(IDC_SAVE_LEVEL), GetModuleHandleW(nullptr), nullptr);
 
         HWND fontTargets[] = {
-            ContentTitleLabel, TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel, ContentHintLabel,
-            ContentList, ImportObjBtn, PlaceAssetBtn, TextureList, TexturePreview, MaterialList,
+            ContentTitleLabel, TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel, ContentPathLabel, ContentActionsLabel, ContentHintLabel,
+            ContentFoldersList, ContentList, ImportObjBtn, PlaceAssetBtn, TextureList, TexturePreview, MaterialList,
             NewMaterialBtn, TonemapCheckbox, NewLevelBtn, OpenLevelBtn, SaveLevelBtn
         };
         for (HWND h : fontTargets)
-            ApplyEditorFont(h, h == ContentTitleLabel || h == TextureTitleLabel || h == PreviewTitleLabel || h == MaterialTitleLabel);
+            ApplyEditorFont(h, h == ContentTitleLabel || h == TextureTitleLabel || h == PreviewTitleLabel || h == MaterialTitleLabel || h == ContentActionsLabel);
 
         SetWindowLongPtrW(MaterialList, GWLP_USERDATA, (LONG_PTR)this);
         MaterialOldProc = (WNDPROC)SetWindowLongPtrW(MaterialList, GWLP_WNDPROC, (LONG_PTR)&FEngine::MaterialWndProc);
@@ -3483,6 +4303,7 @@ void FEngine::Run(HINSTANCE hInstance)
         obj.MaterialSRVBase = 0;
         Objects.push_back(obj);
     }
+    EnsureDefaultEnvironmentActors();
     RefreshOutliner();
     RefreshDetailsPanel();
 
@@ -3549,16 +4370,9 @@ void FEngine::Run(HINSTANCE hInstance)
 
         // 计算光源方向并传入渲染器。
         const float t = float(nowMs - StartTickMs) / 1000.0f;
-        DirectX::XMFLOAT3 lightDirWs{};
-        {
-            using namespace DirectX;
-            const float cy = ::cosf(SunYaw);
-            const float sy = ::sinf(SunYaw);
-            const float cp = ::cosf(SunPitch);
-            const float sp = ::sinf(SunPitch);
-            const XMVECTOR dir = XMVector3Normalize(XMVectorSet(sy * cp, sp, cy * cp, 0.0f));
-            XMStoreFloat3(&lightDirWs, dir);
-        }
+        const DirectX::XMFLOAT3 lightDirWs = GetActiveLightDirection();
+        const float activeSunIntensity = GetActiveSunIntensity();
+        const FSkyAtmosphereSettings activeSky = GetActiveSkySettings();
 
         // 处理材质拖拽投放到场景。
         // Handle material drop onto scene (from material list).
@@ -3627,8 +4441,8 @@ void FEngine::Run(HINSTANCE hInstance)
             GizmoMode == EGizmoMode::Scale,
             lightDirWs,
             bEnableTonemap,
-            SunIntensity,
-            SkySettings,
+            activeSunIntensity,
+            activeSky,
             0,
             bPlacingFromSidebar ? &PreviewPos : nullptr,
             bPlacingFromSidebar ? PaletteType : FSceneObject::EType::Sphere);
@@ -3661,6 +4475,31 @@ void FEngine::Run(HINSTANCE hInstance)
     {
         DeleteObject(UITitleFont);
         UITitleFont = nullptr;
+    }
+    if (UIBackgroundBrush)
+    {
+        DeleteObject(UIBackgroundBrush);
+        UIBackgroundBrush = nullptr;
+    }
+    if (UIPanelBrush)
+    {
+        DeleteObject(UIPanelBrush);
+        UIPanelBrush = nullptr;
+    }
+    if (UIHeaderBrush)
+    {
+        DeleteObject(UIHeaderBrush);
+        UIHeaderBrush = nullptr;
+    }
+    if (UIListBrush)
+    {
+        DeleteObject(UIListBrush);
+        UIListBrush = nullptr;
+    }
+    if (UIEditBrush)
+    {
+        DeleteObject(UIEditBrush);
+        UIEditBrush = nullptr;
     }
     CoUninitialize();
 }

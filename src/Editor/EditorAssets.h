@@ -51,6 +51,12 @@ struct FLevelObjectFile
     DirectX::XMFLOAT3 Albedo{ 0.8f, 0.8f, 0.8f };
     float Metallic = 0.0f;
     float Roughness = 0.5f;
+    float LightIntensity = 3.0f;
+    bool SkyEnabled = true;
+    float RayleighScale = 1.0f;
+    float MieScale = 1.0f;
+    float MieG = 0.8f;
+    float AtmosphereHeight = 12.0f;
 };
 
 struct FLevelFile
