@@ -400,6 +400,77 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
     return slot;
 }
 
+int FSimpleSceneRenderer::CreateStaticMesh(FD3D12RHI& rhi, const std::vector<FVertex>& vertices, const std::vector<uint32>& indices)
+{
+    if (vertices.empty() || indices.empty() || !rhi.GetDevice())
+        return -1;
+
+    ID3D12Device* device = rhi.GetDevice();
+    FMeshGPU mesh{};
+    const uint32 vbSize = (uint32)(vertices.size() * sizeof(FVertex));
+    const uint32 ibSize = (uint32)(indices.size() * sizeof(uint32));
+
+    D3D12_HEAP_PROPERTIES uploadHeap{};
+    uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    D3D12_RESOURCE_DESC vbDesc{};
+    vbDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    vbDesc.Width = vbSize;
+    vbDesc.Height = 1;
+    vbDesc.DepthOrArraySize = 1;
+    vbDesc.MipLevels = 1;
+    vbDesc.SampleDesc.Count = 1;
+    vbDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    ThrowIfFailed(device->CreateCommittedResource(
+        &uploadHeap,
+        D3D12_HEAP_FLAG_NONE,
+        &vbDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&mesh.VertexBuffer)),
+        "CreateCommittedResource static mesh vb failed");
+
+    {
+        void* mapped = nullptr;
+        D3D12_RANGE readRange{ 0, 0 };
+        ThrowIfFailed(mesh.VertexBuffer->Map(0, &readRange, &mapped), "Static mesh VB Map failed");
+        std::memcpy(mapped, vertices.data(), vbSize);
+        mesh.VertexBuffer->Unmap(0, nullptr);
+    }
+
+    D3D12_RESOURCE_DESC ibDesc = vbDesc;
+    ibDesc.Width = ibSize;
+    ThrowIfFailed(device->CreateCommittedResource(
+        &uploadHeap,
+        D3D12_HEAP_FLAG_NONE,
+        &ibDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&mesh.IndexBuffer)),
+        "CreateCommittedResource static mesh ib failed");
+
+    {
+        void* mapped = nullptr;
+        D3D12_RANGE readRange{ 0, 0 };
+        ThrowIfFailed(mesh.IndexBuffer->Map(0, &readRange, &mapped), "Static mesh IB Map failed");
+        std::memcpy(mapped, indices.data(), ibSize);
+        mesh.IndexBuffer->Unmap(0, nullptr);
+    }
+
+    mesh.VBView.BufferLocation = mesh.VertexBuffer->GetGPUVirtualAddress();
+    mesh.VBView.SizeInBytes = vbSize;
+    mesh.VBView.StrideInBytes = sizeof(FVertex);
+    mesh.IBView.BufferLocation = mesh.IndexBuffer->GetGPUVirtualAddress();
+    mesh.IBView.SizeInBytes = ibSize;
+    mesh.IBView.Format = DXGI_FORMAT_R32_UINT;
+    mesh.IndexCount = (uint32)indices.size();
+
+    const int meshIndex = (int)StaticMeshes.size();
+    StaticMeshes.push_back(mesh);
+    return meshIndex;
+}
+
 /**
  * @brief 分配材质 SRV 块（5 个连续槽位）。
  * @param 无。
@@ -474,6 +545,19 @@ const FSimpleSceneRenderer::FMeshGPU& FSimpleSceneRenderer::GetMesh(FSceneObject
     case FSceneObject::EType::Cone: return MeshCone;
     default: return MeshSphere;
     }
+}
+
+const FSimpleSceneRenderer::FMeshGPU* FSimpleSceneRenderer::GetMeshForObject(const FSceneObject& object) const
+{
+    if (IsProceduralSceneObject(object.Type))
+        return &GetMesh(object.Type);
+    if (object.Type == FSceneObject::EType::StaticMesh
+        && object.StaticMeshIndex >= 0
+        && object.StaticMeshIndex < (int)StaticMeshes.size())
+    {
+        return &StaticMeshes[(size_t)object.StaticMeshIndex];
+    }
+    return nullptr;
 }
 
 /**
@@ -1388,6 +1472,7 @@ void FSimpleSceneRenderer::Shutdown()
     RTMeshSphere.BLAS.Reset();
     RTMeshBox.BLAS.Reset();
     RTMeshCone.BLAS.Reset();
+    StaticMeshes.clear();
     for (uint32 i = 0; i < FD3D12RHI::kFrameCount; ++i)
     {
         RTFrame[i].TLAS.Reset();

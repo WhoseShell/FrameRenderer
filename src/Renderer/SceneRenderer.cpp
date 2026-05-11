@@ -399,22 +399,23 @@ void FForwardShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_
         const uint32 drawCount = (uint32)std::min<size_t>(Inputs.Objects->size(), FSimpleSceneRenderer::MaxObjects);
         for (uint32 i = 0; i < drawCount; ++i)
         {
-            if (!IsProceduralSceneObject((*Inputs.Objects)[i].Type))
+            const FSceneObject& object = (*Inputs.Objects)[i];
+            const auto* mesh = Renderer.GetMeshForObject(object);
+            if (!mesh)
             {
                 continue;
             }
-            const auto& mesh = Renderer.GetMesh((*Inputs.Objects)[i].Type);
             cl->SetGraphicsRootConstantBufferView(0, cbBase + (UINT64)Renderer.CBSize * i);
             if (srvHeap)
             {
                 D3D12_GPU_DESCRIPTOR_HANDLE gpu = srvHeap->GetGPUDescriptorHandleForHeapStart();
-                const uint32 base = ((*Inputs.Objects)[i].MaterialSRVBase >= 0) ? (uint32)(*Inputs.Objects)[i].MaterialSRVBase : 0u;
+                const uint32 base = (object.MaterialSRVBase >= 0) ? (uint32)object.MaterialSRVBase : 0u;
                 gpu.ptr += SIZE_T(std::min<uint32>(base, 2047u)) * srvStride;
                 cl->SetGraphicsRootDescriptorTable(1, gpu);
             }
-            cl->IASetVertexBuffers(0, 1, &mesh.VBView);
-            cl->IASetIndexBuffer(&mesh.IBView);
-            cl->DrawIndexedInstanced(mesh.IndexCount, 1, 0, 0, 0);
+            cl->IASetVertexBuffers(0, 1, &mesh->VBView);
+            cl->IASetIndexBuffer(&mesh->IBView);
+            cl->DrawIndexedInstanced(mesh->IndexCount, 1, 0, 0, 0);
         }
 
         if (Inputs.PreviewPos && drawCount < FSimpleSceneRenderer::MaxObjects && IsProceduralSceneObject(Inputs.PreviewType))

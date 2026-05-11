@@ -5,7 +5,9 @@
 #include <cstring>
 #include <cwchar>
 #include <filesystem>
+#include <fstream>
 #include <random>
+#include <sstream>
 
 #include <wincodec.h>
 #include <shellapi.h>
@@ -13,6 +15,63 @@
 #include <commctrl.h>
 
 #include "Core/Diagnostics.h"
+#include "Editor/ObjLoader.h"
+
+namespace
+{
+constexpr int IDC_CONTENT_LIST = 5001;
+constexpr int IDC_IMPORT_OBJ = 5002;
+constexpr int IDC_PLACE_ASSET = 5003;
+constexpr int IDC_NEW_LEVEL = 5004;
+constexpr int IDC_OPEN_LEVEL = 5005;
+constexpr int IDC_SAVE_LEVEL = 5006;
+constexpr int IDC_OUTLINER_LIST = 5101;
+constexpr int IDC_APPLY_DETAILS = 5201;
+
+std::filesystem::path MakeUniquePath(const std::filesystem::path& directory, const std::filesystem::path& fileName)
+{
+    std::filesystem::path candidate = directory / fileName.filename();
+    if (!std::filesystem::exists(candidate))
+        return candidate;
+
+    const std::wstring stem = fileName.stem().wstring();
+    const std::wstring ext = fileName.extension().wstring();
+    for (int i = 1; i < 10000; ++i)
+    {
+        candidate = directory / (stem + L"_" + std::to_wstring(i) + ext);
+        if (!std::filesystem::exists(candidate))
+            return candidate;
+    }
+    return directory / (stem + L"_imported" + ext);
+}
+
+bool IsPathUnder(const std::filesystem::path& root, const std::filesystem::path& path)
+{
+    std::error_code ec;
+    const std::filesystem::path rel = std::filesystem::relative(path, root, ec);
+    if (ec || rel.empty())
+        return false;
+    const auto first = *rel.begin();
+    return first.wstring() != L"..";
+}
+
+std::wstring DisplayAssetKind(editor::EAssetKind kind)
+{
+    switch (kind)
+    {
+    case editor::EAssetKind::Model: return L"[Model] ";
+    case editor::EAssetKind::Texture: return L"[Texture] ";
+    case editor::EAssetKind::Material: return L"[Material] ";
+    case editor::EAssetKind::Level: return L"[Level] ";
+    default: return L"[Asset] ";
+    }
+}
+
+HMENU MenuHandle(int id)
+{
+    return reinterpret_cast<HMENU>(static_cast<INT_PTR>(id));
+}
+}
 
 /**
  * @brief 将浮点数限制在指定区间内。
@@ -1000,6 +1059,9 @@ LRESULT FEngine::HandleViewportMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 }
                 bDragging = false;
                 ActiveAxis = EGizmoAxis::None;
+                MarkLevelDirty();
+                RefreshOutliner();
+                RefreshDetailsPanel();
             }
             return 0;
         }
@@ -1225,6 +1287,47 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
+        if ((HWND)lParam == ContentList && HIWORD(wParam) == LBN_DBLCLK)
+        {
+            PlaceSelectedContentAsset();
+            return 0;
+        }
+        if ((HWND)lParam == OutlinerList && HIWORD(wParam) == LBN_SELCHANGE && !bSuppressOutlinerEvents)
+        {
+            const int sel = (int)SendMessageW(OutlinerList, LB_GETCURSEL, 0, 0);
+            SetSelectedIndex(sel);
+            return 0;
+        }
+        if ((HWND)lParam == ImportObjBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            ImportObjFromDialog();
+            return 0;
+        }
+        if ((HWND)lParam == PlaceAssetBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            PlaceSelectedContentAsset();
+            return 0;
+        }
+        if ((HWND)lParam == NewLevelBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            NewLevel();
+            return 0;
+        }
+        if ((HWND)lParam == OpenLevelBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            OpenLevelFromDialog();
+            return 0;
+        }
+        if ((HWND)lParam == SaveLevelBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            SaveCurrentLevel(false);
+            return 0;
+        }
+        if ((HWND)lParam == ApplyDetailsBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            ApplyDetailsEdits();
+            return 0;
+        }
         if (HIWORD(wParam) == LBN_SELCHANGE && (HWND)lParam == TextureList)
         {
             // 纹理列表选择改变：更新预览。
@@ -1251,6 +1354,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 mat.Albedo = Textures[SelectedTextureIndex].AvgColor;
                 mat.AlbedoTexIndex = SelectedTextureIndex;
                 mat.AlbedoTexSlot = Textures[SelectedTextureIndex].RendererSlot;
+                mat.AlbedoTexPath = Textures[SelectedTextureIndex].RelativePath;
             }
             else
             {
@@ -1270,6 +1374,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             mat.SRVBase = Renderer.AllocateMaterialSRVBlock();
             Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
             Materials.push_back(mat);
+            SaveMaterialAsset((int)Materials.size() - 1);
             if (MaterialList)
             {
                 SendMessageW(MaterialList, LB_ADDSTRING, 0, (LPARAM)mat.Name.c_str());
@@ -1398,16 +1503,33 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
     // 仅处理支持的图像扩展名。
     if (!HasImageExtension(path)) return;
 
+    std::filesystem::path source = std::filesystem::path(path);
+    std::filesystem::path finalPath = source;
+    if (!ContentRoot.empty() && !IsPathUnder(ContentRoot, source))
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(ContentLayout.Textures, ec);
+        finalPath = MakeUniquePath(ContentLayout.Textures, source.filename());
+        std::filesystem::copy_file(source, finalPath, std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec)
+            finalPath = source;
+    }
+    const std::wstring relativePath = ContentRoot.empty()
+        ? finalPath.filename().wstring()
+        : editor::MakeRelativeContentPath(ContentRoot, finalPath);
+    if (FindTextureByRelativePath(relativePath) >= 0)
+        return;
+
     // Preview (small) + avg color
     HBITMAP previewBmp = nullptr;
     DirectX::XMFLOAT3 avg{};
-    if (!LoadImagePreviewWIC(path, 128, previewBmp, avg))
+    if (!LoadImagePreviewWIC(finalPath.wstring(), 128, previewBmp, avg))
     {
         // WIC 不支持 TGA 时走自定义解码并生成预览。
         // WIC might not support TGA; handle TGA preview via full decode
         std::vector<uint8> rgba;
         uint32 w = 0, h = 0;
-        if (!LoadImageRGBA8TGA(path, rgba, w, h))
+        if (!LoadImageRGBA8TGA(finalPath.wstring(), rgba, w, h))
             return;
         avg = ComputeAverageRGBA8(rgba, w, h);
 
@@ -1457,9 +1579,9 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
     // Decode for renderer upload (limit to 1024 on the longer edge)
     std::vector<uint8> rgba;
     uint32 w = 0, h = 0;
-    bool ok = LoadImageRGBA8WIC(path, 1024, rgba, w, h);
+    bool ok = LoadImageRGBA8WIC(finalPath.wstring(), 1024, rgba, w, h);
     if (!ok)
-        ok = LoadImageRGBA8TGA(path, rgba, w, h);
+        ok = LoadImageRGBA8TGA(finalPath.wstring(), rgba, w, h);
     if (!ok || rgba.empty()) return;
 
     int slot = 0;
@@ -1469,7 +1591,9 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
 
     // 写入纹理资产结构。
     FTextureAsset tex{};
-    tex.Path = path;
+    tex.Name = finalPath.stem().wstring();
+    tex.RelativePath = relativePath;
+    tex.Path = finalPath.wstring();
     tex.Preview = previewBmp;
     tex.AvgColor = avg;
     tex.RendererSlot = slot;
@@ -1478,12 +1602,13 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
     // 更新纹理列表 UI。
     if (TextureList)
     {
-        const auto name = std::filesystem::path(path).filename().wstring();
+        const auto name = std::filesystem::path(finalPath).filename().wstring();
         SendMessageW(TextureList, LB_ADDSTRING, 0, (LPARAM)name.c_str());
     }
 
     // If editor is open, refresh texture combo.
     UpdateMaterialEditorControls();
+    RefreshContentBrowser();
 }
 
 /**
@@ -1492,6 +1617,563 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
  * @return 无返回值。
  * @note 阶段：编辑器材质编辑阶段。
  */
+void FEngine::InitializeEditorContent()
+{
+    ContentRoot = std::filesystem::path(CONTENT_DIR);
+    ContentLayout = editor::MakeContentLayout(ContentRoot);
+    std::wstring error;
+    EnsureContentLayout(ContentLayout, &error);
+    RefreshContentBrowser();
+}
+
+void FEngine::RefreshContentBrowser()
+{
+    if (ContentRoot.empty())
+        return;
+    ContentAssets = editor::ScanContent(ContentLayout);
+    if (!ContentList)
+        return;
+
+    SendMessageW(ContentList, LB_RESETCONTENT, 0, 0);
+    for (const editor::FAssetRecord& asset : ContentAssets)
+    {
+        const std::wstring label = DisplayAssetKind(asset.Kind) + asset.RelativePath;
+        SendMessageW(ContentList, LB_ADDSTRING, 0, (LPARAM)label.c_str());
+    }
+}
+
+void FEngine::RefreshOutliner()
+{
+    if (!OutlinerList)
+        return;
+    bSuppressOutlinerEvents = true;
+    SendMessageW(OutlinerList, LB_RESETCONTENT, 0, 0);
+    for (const FSceneObject& object : Objects)
+    {
+        std::wstring name = object.Name.empty()
+            ? (SceneObjectTypeToString(object.Type) + L" " + std::to_wstring(object.Id))
+            : object.Name;
+        SendMessageW(OutlinerList, LB_ADDSTRING, 0, (LPARAM)name.c_str());
+    }
+    if (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size())
+        SendMessageW(OutlinerList, LB_SETCURSEL, (WPARAM)SelectedIndex, 0);
+    bSuppressOutlinerEvents = false;
+}
+
+void FEngine::RefreshDetailsPanel()
+{
+    const bool hasSelection = SelectedIndex >= 0 && SelectedIndex < (int)Objects.size();
+    HWND edits[] = { DetailNameEdit, DetailPosXEdit, DetailPosYEdit, DetailPosZEdit, DetailScaleXEdit, DetailScaleYEdit, DetailScaleZEdit, ApplyDetailsBtn };
+    for (HWND h : edits)
+        if (h) EnableWindow(h, hasSelection ? TRUE : FALSE);
+    if (!hasSelection)
+    {
+        if (DetailsLabel) SetWindowTextW(DetailsLabel, L"Details");
+        if (DetailNameEdit) SetWindowTextW(DetailNameEdit, L"");
+        return;
+    }
+
+    const FSceneObject& object = Objects[(size_t)SelectedIndex];
+    if (DetailsLabel)
+    {
+        const std::wstring title = L"Details: " + SceneObjectTypeToString(object.Type);
+        SetWindowTextW(DetailsLabel, title.c_str());
+    }
+    auto setFloat = [](HWND h, float v)
+    {
+        if (!h) return;
+        wchar_t buf[64];
+        swprintf_s(buf, L"%.3f", v);
+        SetWindowTextW(h, buf);
+    };
+    if (DetailNameEdit) SetWindowTextW(DetailNameEdit, object.Name.c_str());
+    setFloat(DetailPosXEdit, object.Position.x);
+    setFloat(DetailPosYEdit, object.Position.y);
+    setFloat(DetailPosZEdit, object.Position.z);
+    setFloat(DetailScaleXEdit, object.Scale.x);
+    setFloat(DetailScaleYEdit, object.Scale.y);
+    setFloat(DetailScaleZEdit, object.Scale.z);
+}
+
+void FEngine::SetSelectedIndex(int index)
+{
+    SelectedIndex = (index >= 0 && index < (int)Objects.size()) ? index : -1;
+    RefreshOutliner();
+    RefreshDetailsPanel();
+}
+
+void FEngine::MarkLevelDirty()
+{
+    bLevelDirty = true;
+}
+
+void FEngine::UpdateWindowTitle(const wchar_t* baseTitle, const wchar_t* pathName)
+{
+    const std::wstring levelName = CurrentLevelName.empty() ? L"Untitled" : CurrentLevelName;
+    const wchar_t* dirty = bLevelDirty ? L"*" : L"";
+    if (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size())
+    {
+        wchar_t title[384];
+        const auto& p = Objects[(size_t)SelectedIndex].Position;
+        swprintf_s(title, L"%s%s  |  Level: %s  |  Path: %s  |  Selected: %s  X=%.2f Y=%.2f Z=%.2f",
+                   baseTitle, dirty, levelName.c_str(), pathName, Objects[(size_t)SelectedIndex].Name.c_str(), p.x, p.y, p.z);
+        SetWindowTextW(Window.GetHwnd(), title);
+    }
+    else
+    {
+        wchar_t title[256];
+        swprintf_s(title, L"%s%s  |  Level: %s  |  Path: %s", baseTitle, dirty, levelName.c_str(), pathName);
+        SetWindowTextW(Window.GetHwnd(), title);
+    }
+}
+
+void FEngine::NewLevel()
+{
+    Objects.clear();
+    StaticMeshByAsset.clear();
+    StaticMeshRadiusByAsset.clear();
+    CurrentLevelPath.clear();
+    CurrentLevelName = L"Untitled";
+    bLevelDirty = false;
+    SetSelectedIndex(-1);
+}
+
+void FEngine::SaveCurrentLevel(bool saveAs)
+{
+    std::filesystem::path path = CurrentLevelPath;
+    if (saveAs || path.empty())
+    {
+        wchar_t fileName[MAX_PATH] = L"Untitled.level.json";
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = Window.GetHwnd();
+        ofn.lpstrFilter = L"Level JSON (*.level.json)\0*.level.json\0All Files\0*.*\0";
+        ofn.lpstrFile = fileName;
+        ofn.nMaxFile = MAX_PATH;
+        const std::wstring initialDir = ContentLayout.Levels.wstring();
+        ofn.lpstrInitialDir = initialDir.c_str();
+        ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+        ofn.lpstrDefExt = L"json";
+        if (!GetSaveFileNameW(&ofn))
+            return;
+        path = fileName;
+    }
+
+    editor::FLevelFile level = BuildLevelFile();
+    std::wstring error;
+    if (editor::SaveLevelFile(path, level, &error))
+    {
+        CurrentLevelPath = path;
+        CurrentLevelName = path.stem().wstring();
+        if (CurrentLevelName.size() > 6 && CurrentLevelName.ends_with(L".level"))
+            CurrentLevelName.resize(CurrentLevelName.size() - 6);
+        bLevelDirty = false;
+        RefreshContentBrowser();
+    }
+}
+
+void FEngine::OpenLevelFromDialog()
+{
+    wchar_t fileName[MAX_PATH] = L"";
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = Window.GetHwnd();
+    ofn.lpstrFilter = L"Level JSON (*.level.json)\0*.level.json\0All Files\0*.*\0";
+    ofn.lpstrFile = fileName;
+    ofn.nMaxFile = MAX_PATH;
+    const std::wstring initialDir = ContentLayout.Levels.wstring();
+    ofn.lpstrInitialDir = initialDir.c_str();
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (GetOpenFileNameW(&ofn))
+        LoadLevelFromPath(fileName);
+}
+
+void FEngine::LoadLevelFromPath(const std::filesystem::path& path)
+{
+    editor::FLevelFile level{};
+    std::wstring error;
+    if (!editor::LoadLevelFile(path, level, &error))
+        return;
+    ApplyLevelFile(level, path);
+}
+
+void FEngine::ImportObjFromDialog()
+{
+    wchar_t fileName[MAX_PATH] = L"";
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = Window.GetHwnd();
+    ofn.lpstrFilter = L"OBJ Model (*.obj)\0*.obj\0All Files\0*.*\0";
+    ofn.lpstrFile = fileName;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&ofn))
+        return;
+
+    const std::filesystem::path source = fileName;
+    std::filesystem::path finalPath = source;
+    if (!IsPathUnder(ContentRoot, source))
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(ContentLayout.Models, ec);
+        finalPath = MakeUniquePath(ContentLayout.Models, source.filename());
+        std::filesystem::copy_file(source, finalPath, std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec)
+            return;
+    }
+    RefreshContentBrowser();
+    const std::wstring rel = editor::MakeRelativeContentPath(ContentRoot, finalPath);
+    for (int i = 0; i < (int)ContentAssets.size(); ++i)
+    {
+        if (ContentAssets[(size_t)i].RelativePath == rel)
+        {
+            SendMessageW(ContentList, LB_SETCURSEL, (WPARAM)i, 0);
+            PlaceSelectedContentAsset();
+            break;
+        }
+    }
+}
+
+void FEngine::PlaceSelectedContentAsset()
+{
+    if (!ContentList)
+        return;
+    const int sel = (int)SendMessageW(ContentList, LB_GETCURSEL, 0, 0);
+    if (sel < 0 || sel >= (int)ContentAssets.size())
+        return;
+    const editor::FAssetRecord& asset = ContentAssets[(size_t)sel];
+    if (asset.Kind == editor::EAssetKind::Level)
+    {
+        LoadLevelFromPath(asset.AbsolutePath);
+        return;
+    }
+    if (asset.Kind == editor::EAssetKind::Texture)
+    {
+        EnsureTextureLoaded(asset.RelativePath);
+        return;
+    }
+    if (asset.Kind == editor::EAssetKind::Material)
+    {
+        LoadContentMaterials();
+        return;
+    }
+    if (asset.Kind != editor::EAssetKind::Model)
+        return;
+
+    const int meshIndex = EnsureStaticMeshLoaded(asset.RelativePath);
+    if (meshIndex < 0)
+        return;
+
+    using namespace DirectX;
+    XMVECTOR p = XMLoadFloat3(&Camera.Position);
+    p = XMVectorAdd(p, XMVectorScale(Camera.GetForwardVector(), 4.0f));
+    XMFLOAT3 pos{};
+    XMStoreFloat3(&pos, p);
+    pos.y = 0.0f;
+
+    FSceneObject object = MakeSceneObject(FSceneObject::EType::StaticMesh, pos, asset.RelativePath);
+    object.StaticMeshIndex = meshIndex;
+    if (const auto found = StaticMeshRadiusByAsset.find(asset.RelativePath); found != StaticMeshRadiusByAsset.end())
+        object.Radius = found->second;
+    Objects.push_back(object);
+    SetSelectedIndex((int)Objects.size() - 1);
+    MarkLevelDirty();
+    RefreshOutliner();
+}
+
+int FEngine::EnsureStaticMeshLoaded(const std::wstring& relativePath)
+{
+    if (const auto found = StaticMeshByAsset.find(relativePath); found != StaticMeshByAsset.end())
+        return found->second;
+
+    editor::FObjMeshData mesh{};
+    std::wstring error;
+    const std::filesystem::path path = editor::ResolveContentPath(ContentRoot, relativePath);
+    if (!editor::LoadObjMesh(path, mesh, &error))
+        return -1;
+    const int meshIndex = Renderer.CreateStaticMesh(RHI, mesh.Vertices, mesh.Indices);
+    if (meshIndex >= 0)
+    {
+        StaticMeshByAsset[relativePath] = meshIndex;
+        StaticMeshRadiusByAsset[relativePath] = mesh.BoundsRadius;
+    }
+    return meshIndex;
+}
+
+int FEngine::FindTextureByRelativePath(const std::wstring& relativePath) const
+{
+    if (relativePath.empty())
+        return -1;
+    for (int i = 0; i < (int)Textures.size(); ++i)
+        if (Textures[(size_t)i].RelativePath == relativePath)
+            return i;
+    return -1;
+}
+
+int FEngine::EnsureTextureLoaded(const std::wstring& relativePath)
+{
+    const int existing = FindTextureByRelativePath(relativePath);
+    if (existing >= 0 || relativePath.empty())
+        return existing;
+    const std::filesystem::path path = editor::ResolveContentPath(ContentRoot, relativePath);
+    AddTextureFromFile(path.wstring());
+    return FindTextureByRelativePath(relativePath);
+}
+
+int FEngine::FindMaterialByAssetPath(const std::wstring& relativePath) const
+{
+    if (relativePath.empty())
+        return -1;
+    for (int i = 0; i < (int)Materials.size(); ++i)
+        if (Materials[(size_t)i].AssetPath == relativePath)
+            return i;
+    return -1;
+}
+
+void FEngine::LoadContentMaterials()
+{
+    const std::vector<editor::FAssetRecord> assets = ContentAssets;
+    for (const editor::FAssetRecord& asset : assets)
+    {
+        if (asset.Kind != editor::EAssetKind::Material || FindMaterialByAssetPath(asset.RelativePath) >= 0)
+            continue;
+        editor::FMaterialFile src{};
+        std::wstring error;
+        if (!editor::LoadMaterialFile(asset.AbsolutePath, src, &error))
+            continue;
+
+        FMaterialAsset mat{};
+        mat.Name = src.Name.empty() ? asset.Name : src.Name;
+        mat.AssetPath = asset.RelativePath;
+        mat.Albedo = src.Albedo;
+        mat.Metallic = src.Metallic;
+        mat.Roughness = src.Roughness;
+        mat.AlbedoTexPath = src.AlbedoTexture;
+        mat.NormalTexPath = src.NormalTexture;
+        mat.RoughnessTexPath = src.RoughnessTexture;
+        mat.MetallicTexPath = src.MetallicTexture;
+        mat.AOTexPath = src.AOTexture;
+
+        mat.AlbedoTexIndex = EnsureTextureLoaded(mat.AlbedoTexPath);
+        mat.NormalTexIndex = EnsureTextureLoaded(mat.NormalTexPath);
+        mat.RoughnessTexIndex = EnsureTextureLoaded(mat.RoughnessTexPath);
+        mat.MetallicTexIndex = EnsureTextureLoaded(mat.MetallicTexPath);
+        mat.AOTexIndex = EnsureTextureLoaded(mat.AOTexPath);
+        mat.AlbedoTexSlot = (mat.AlbedoTexIndex >= 0) ? Textures[(size_t)mat.AlbedoTexIndex].RendererSlot : 0;
+        mat.NormalTexSlot = (mat.NormalTexIndex >= 0) ? Textures[(size_t)mat.NormalTexIndex].RendererSlot : 1;
+        mat.RoughnessTexSlot = (mat.RoughnessTexIndex >= 0) ? Textures[(size_t)mat.RoughnessTexIndex].RendererSlot : 2;
+        mat.MetallicTexSlot = (mat.MetallicTexIndex >= 0) ? Textures[(size_t)mat.MetallicTexIndex].RendererSlot : 3;
+        mat.AOTexSlot = (mat.AOTexIndex >= 0) ? Textures[(size_t)mat.AOTexIndex].RendererSlot : 4;
+        mat.SRVBase = Renderer.AllocateMaterialSRVBlock();
+        Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
+        Materials.push_back(mat);
+        if (MaterialList)
+            SendMessageW(MaterialList, LB_ADDSTRING, 0, (LPARAM)mat.Name.c_str());
+    }
+}
+
+void FEngine::SaveMaterialAsset(int materialIndex)
+{
+    if (materialIndex < 0 || materialIndex >= (int)Materials.size())
+        return;
+    FMaterialAsset& mat = Materials[(size_t)materialIndex];
+    if (mat.AssetPath.empty())
+    {
+        std::wstring fileName = mat.Name.empty() ? L"Material" : mat.Name;
+        for (wchar_t& c : fileName)
+            if (c == L'\\' || c == L'/' || c == L':' || c == L'*' || c == L'?' || c == L'"' || c == L'<' || c == L'>' || c == L'|')
+                c = L'_';
+        std::filesystem::path path = MakeUniquePath(ContentLayout.Materials, fileName + L".material.json");
+        mat.AssetPath = editor::MakeRelativeContentPath(ContentRoot, path);
+    }
+
+    editor::FMaterialFile out{};
+    out.Name = mat.Name;
+    out.Albedo = mat.Albedo;
+    out.Metallic = mat.Metallic;
+    out.Roughness = mat.Roughness;
+    out.AlbedoTexture = (mat.AlbedoTexIndex >= 0 && mat.AlbedoTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.AlbedoTexIndex].RelativePath : mat.AlbedoTexPath;
+    out.NormalTexture = (mat.NormalTexIndex >= 0 && mat.NormalTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.NormalTexIndex].RelativePath : mat.NormalTexPath;
+    out.RoughnessTexture = (mat.RoughnessTexIndex >= 0 && mat.RoughnessTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.RoughnessTexIndex].RelativePath : mat.RoughnessTexPath;
+    out.MetallicTexture = (mat.MetallicTexIndex >= 0 && mat.MetallicTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.MetallicTexIndex].RelativePath : mat.MetallicTexPath;
+    out.AOTexture = (mat.AOTexIndex >= 0 && mat.AOTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.AOTexIndex].RelativePath : mat.AOTexPath;
+
+    std::wstring error;
+    editor::SaveMaterialFile(editor::ResolveContentPath(ContentRoot, mat.AssetPath), out, &error);
+    RefreshContentBrowser();
+}
+
+void FEngine::ApplyMaterialToObject(int objectIndex, int materialIndex)
+{
+    if (objectIndex < 0 || objectIndex >= (int)Objects.size() || materialIndex < 0 || materialIndex >= (int)Materials.size())
+        return;
+    const auto& mat = Materials[(size_t)materialIndex];
+    FSceneObject& object = Objects[(size_t)objectIndex];
+    object.Albedo = mat.Albedo;
+    object.Metallic = mat.Metallic;
+    object.Roughness = mat.Roughness;
+    object.MaterialIndex = materialIndex;
+    object.MaterialPath = mat.AssetPath;
+    object.MaterialSRVBase = mat.SRVBase;
+    object.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseNormalTex = (mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseMetallicTex = (mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
+    MarkLevelDirty();
+}
+
+FSceneObject FEngine::MakeSceneObject(FSceneObject::EType type, const DirectX::XMFLOAT3& position, const std::wstring& assetPath)
+{
+    FSceneObject obj{};
+    obj.Id = NextObjectId++;
+    obj.Type = type;
+    obj.AssetPath = assetPath;
+    obj.Position = position;
+    obj.Name = SceneObjectTypeToString(type) + L" " + std::to_wstring(obj.Id);
+    if (type == FSceneObject::EType::RenderDocRock)
+    {
+        obj.Position.y += 0.39f;
+        obj.Scale = { 0.35f, 0.35f, 0.35f };
+    }
+    switch (type)
+    {
+    case FSceneObject::EType::Sphere: obj.Radius = 0.75f; obj.Albedo = { 0.85f, 0.15f, 0.10f }; break;
+    case FSceneObject::EType::Box: obj.Radius = 0.9f; obj.Albedo = { 0.18f, 0.55f, 0.95f }; break;
+    case FSceneObject::EType::Cone: obj.Radius = 0.9f; obj.Albedo = { 0.95f, 0.75f, 0.20f }; break;
+    case FSceneObject::EType::RenderDocRock: obj.Radius = 2.05f; obj.Albedo = { 0.45f, 0.45f, 0.45f }; break;
+    case FSceneObject::EType::StaticMesh: obj.Radius = 1.0f; obj.Albedo = { 0.75f, 0.75f, 0.75f }; break;
+    }
+    obj.Metallic = 0.0f;
+    obj.Roughness = 0.35f;
+    obj.MaterialIndex = -1;
+    obj.MaterialSRVBase = Renderer.AllocateMaterialSRVBlock();
+    Renderer.UpdateMaterialSRVBlock(obj.MaterialSRVBase, 0, 1, 2, 3, 4);
+    return obj;
+}
+
+editor::FLevelFile FEngine::BuildLevelFile() const
+{
+    editor::FLevelFile level{};
+    level.Name = CurrentLevelName;
+    level.SunYaw = SunYaw;
+    level.SunPitch = SunPitch;
+    level.SunIntensity = SunIntensity;
+    for (const FSceneObject& object : Objects)
+    {
+        editor::FLevelObjectFile out{};
+        out.Id = object.Id;
+        out.Name = object.Name;
+        out.Type = SceneObjectTypeToString(object.Type);
+        out.Asset = object.AssetPath;
+        out.Material = object.MaterialPath;
+        out.Position = object.Position;
+        out.Scale = object.Scale;
+        out.Albedo = object.Albedo;
+        out.Metallic = object.Metallic;
+        out.Roughness = object.Roughness;
+        level.Objects.push_back(out);
+    }
+    return level;
+}
+
+void FEngine::ApplyLevelFile(const editor::FLevelFile& level, const std::filesystem::path& path)
+{
+    Objects.clear();
+    StaticMeshByAsset.clear();
+    StaticMeshRadiusByAsset.clear();
+    NextObjectId = 1;
+    SunYaw = level.SunYaw;
+    SunPitch = level.SunPitch;
+    SunIntensity = level.SunIntensity;
+    UpdateSkyUI();
+    LoadContentMaterials();
+
+    for (const editor::FLevelObjectFile& in : level.Objects)
+    {
+        FSceneObject::EType type = SceneObjectTypeFromString(in.Type);
+        FSceneObject object = MakeSceneObject(type, in.Position, in.Asset);
+        object.Id = in.Id ? in.Id : object.Id;
+        object.Name = in.Name.empty() ? object.Name : in.Name;
+        object.Scale = in.Scale;
+        object.Albedo = in.Albedo;
+        object.Metallic = in.Metallic;
+        object.Roughness = in.Roughness;
+        object.MaterialPath = in.Material;
+        if (type == FSceneObject::EType::StaticMesh)
+        {
+            object.StaticMeshIndex = EnsureStaticMeshLoaded(in.Asset);
+            if (const auto found = StaticMeshRadiusByAsset.find(in.Asset); found != StaticMeshRadiusByAsset.end())
+                object.Radius = found->second;
+            if (object.StaticMeshIndex < 0)
+                continue;
+        }
+        Objects.push_back(object);
+        const int matIndex = FindMaterialByAssetPath(in.Material);
+        if (matIndex >= 0)
+            ApplyMaterialToObject((int)Objects.size() - 1, matIndex);
+        NextObjectId = std::max(NextObjectId, object.Id + 1);
+    }
+    CurrentLevelPath = path;
+    CurrentLevelName = level.Name.empty() ? path.stem().wstring() : level.Name;
+    bLevelDirty = false;
+    SetSelectedIndex(Objects.empty() ? -1 : 0);
+    RefreshOutliner();
+}
+
+std::wstring FEngine::SceneObjectTypeToString(FSceneObject::EType type)
+{
+    switch (type)
+    {
+    case FSceneObject::EType::Sphere: return L"Sphere";
+    case FSceneObject::EType::Box: return L"Box";
+    case FSceneObject::EType::Cone: return L"Cone";
+    case FSceneObject::EType::RenderDocRock: return L"RenderDoc Rock";
+    case FSceneObject::EType::StaticMesh: return L"Static Mesh";
+    default: return L"Object";
+    }
+}
+
+FSceneObject::EType FEngine::SceneObjectTypeFromString(const std::wstring& type)
+{
+    if (type == L"Box") return FSceneObject::EType::Box;
+    if (type == L"Cone") return FSceneObject::EType::Cone;
+    if (type == L"RenderDoc Rock") return FSceneObject::EType::RenderDocRock;
+    if (type == L"Static Mesh") return FSceneObject::EType::StaticMesh;
+    return FSceneObject::EType::Sphere;
+}
+
+void FEngine::ApplyDetailsEdits()
+{
+    if (SelectedIndex < 0 || SelectedIndex >= (int)Objects.size())
+        return;
+    auto getText = [](HWND h) -> std::wstring
+    {
+        wchar_t buf[256]{};
+        if (h) GetWindowTextW(h, buf, (int)_countof(buf));
+        return buf;
+    };
+    auto getFloat = [&](HWND h, float fallback) -> float
+    {
+        const std::wstring text = getText(h);
+        wchar_t* end = nullptr;
+        const float v = std::wcstof(text.c_str(), &end);
+        return (end && end != text.c_str()) ? v : fallback;
+    };
+
+    FSceneObject& object = Objects[(size_t)SelectedIndex];
+    object.Name = getText(DetailNameEdit);
+    object.Position.x = getFloat(DetailPosXEdit, object.Position.x);
+    object.Position.y = getFloat(DetailPosYEdit, object.Position.y);
+    object.Position.z = getFloat(DetailPosZEdit, object.Position.z);
+    object.Scale.x = std::max(0.01f, getFloat(DetailScaleXEdit, object.Scale.x));
+    object.Scale.y = std::max(0.01f, getFloat(DetailScaleYEdit, object.Scale.y));
+    object.Scale.z = std::max(0.01f, getFloat(DetailScaleZEdit, object.Scale.z));
+    MarkLevelDirty();
+    RefreshOutliner();
+    RefreshDetailsPanel();
+}
+
 void FEngine::OpenMaterialEditor(int materialIndex)
 {
     // 校验索引有效性。
@@ -1675,6 +2357,11 @@ void FEngine::ApplyMaterialEditorChanges()
     readCombo(4107, mat.RoughnessTexIndex, mat.RoughnessTexSlot, 2);
     readCombo(4108, mat.MetallicTexIndex, mat.MetallicTexSlot, 3);
     readCombo(4109, mat.AOTexIndex, mat.AOTexSlot, 4);
+    mat.AlbedoTexPath = (mat.AlbedoTexIndex >= 0) ? Textures[(size_t)mat.AlbedoTexIndex].RelativePath : L"";
+    mat.NormalTexPath = (mat.NormalTexIndex >= 0) ? Textures[(size_t)mat.NormalTexIndex].RelativePath : L"";
+    mat.RoughnessTexPath = (mat.RoughnessTexIndex >= 0) ? Textures[(size_t)mat.RoughnessTexIndex].RelativePath : L"";
+    mat.MetallicTexPath = (mat.MetallicTexIndex >= 0) ? Textures[(size_t)mat.MetallicTexIndex].RelativePath : L"";
+    mat.AOTexPath = (mat.AOTexIndex >= 0) ? Textures[(size_t)mat.AOTexIndex].RelativePath : L"";
 
     // Update renderer descriptor block.
     Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
@@ -1689,6 +2376,7 @@ void FEngine::ApplyMaterialEditorChanges()
             obj.Metallic = mat.Metallic;
             obj.Roughness = mat.Roughness;
             obj.MaterialSRVBase = mat.SRVBase;
+            obj.MaterialPath = mat.AssetPath;
             obj.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
             obj.UseNormalTex = (mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
             obj.UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
@@ -1696,6 +2384,8 @@ void FEngine::ApplyMaterialEditorChanges()
             obj.UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
         }
     }
+    SaveMaterialAsset(EditingMaterialIndex);
+    MarkLevelDirty();
 }
 
 /**
@@ -1713,7 +2403,7 @@ void FEngine::LayoutUI()
     GetClientRect(Window.GetHwnd(), &rc);
     const int clientW = (int)(rc.right - rc.left);
     const int clientH = (int)(rc.bottom - rc.top);
-    const int viewportW = std::max(1, clientW - SidebarWidthPx);
+    const int viewportW = std::max(1, clientW - SidebarWidthPx - RightPanelWidthPx);
     const int viewportH = std::max(1, clientH - BottomPanelHeightPx);
 
     const int sidebarH = viewportH;
@@ -1766,6 +2456,34 @@ void FEngine::LayoutUI()
     if (ViewportHwnd)
         MoveWindow(ViewportHwnd, SidebarWidthPx, 0, viewportW, viewportH, TRUE);
 
+    const int rightX = SidebarWidthPx + viewportW;
+    if (RightPanel)
+        MoveWindow(RightPanel, rightX, 0, RightPanelWidthPx, viewportH, TRUE);
+    if (OutlinerLabel)
+        MoveWindow(OutlinerLabel, rightX + 8, 8, RightPanelWidthPx - 16, 18, TRUE);
+    if (OutlinerList)
+        MoveWindow(OutlinerList, rightX + 8, 30, RightPanelWidthPx - 16, std::max(80, viewportH / 2 - 44), TRUE);
+    const int detailsY = std::max(120, viewportH / 2 + 4);
+    if (DetailsLabel)
+        MoveWindow(DetailsLabel, rightX + 8, detailsY, RightPanelWidthPx - 16, 18, TRUE);
+    if (DetailNameEdit)
+        MoveWindow(DetailNameEdit, rightX + 8, detailsY + 24, RightPanelWidthPx - 16, 22, TRUE);
+    const int editW = (RightPanelWidthPx - 32) / 3;
+    if (DetailPosXEdit)
+        MoveWindow(DetailPosXEdit, rightX + 8, detailsY + 56, editW, 22, TRUE);
+    if (DetailPosYEdit)
+        MoveWindow(DetailPosYEdit, rightX + 12 + editW, detailsY + 56, editW, 22, TRUE);
+    if (DetailPosZEdit)
+        MoveWindow(DetailPosZEdit, rightX + 16 + editW * 2, detailsY + 56, editW, 22, TRUE);
+    if (DetailScaleXEdit)
+        MoveWindow(DetailScaleXEdit, rightX + 8, detailsY + 86, editW, 22, TRUE);
+    if (DetailScaleYEdit)
+        MoveWindow(DetailScaleYEdit, rightX + 12 + editW, detailsY + 86, editW, 22, TRUE);
+    if (DetailScaleZEdit)
+        MoveWindow(DetailScaleZEdit, rightX + 16 + editW * 2, detailsY + 86, editW, 22, TRUE);
+    if (ApplyDetailsBtn)
+        MoveWindow(ApplyDetailsBtn, rightX + 8, detailsY + 116, RightPanelWidthPx - 16, 24, TRUE);
+
     if (BottomPanel)
         MoveWindow(BottomPanel, 0, viewportH, clientW, BottomPanelHeightPx, TRUE);
 
@@ -1773,19 +2491,31 @@ void FEngine::LayoutUI()
     {
         // 计算底栏三列布局并更新控件位置。
         const int padding = 8;
-        const int colW = std::max(80, (clientW - padding * 4) / 3);
+        const int colW = std::max(80, (clientW - padding * 5) / 4);
         const int listH = std::max(40, BottomPanelHeightPx - padding * 2 - 26);
 
+        if (ContentList)
+            MoveWindow(ContentList, padding, padding, colW, listH, TRUE);
+        if (ImportObjBtn)
+            MoveWindow(ImportObjBtn, padding, padding + listH + 4, colW / 2 - 2, 22, TRUE);
+        if (PlaceAssetBtn)
+            MoveWindow(PlaceAssetBtn, padding + colW / 2 + 2, padding + listH + 4, colW / 2 - 2, 22, TRUE);
         if (TextureList)
-            MoveWindow(TextureList, padding, padding, colW, listH, TRUE);
+            MoveWindow(TextureList, padding + colW + padding, padding, colW, listH, TRUE);
         if (TexturePreview)
-            MoveWindow(TexturePreview, padding + colW + padding, padding, colW, listH, TRUE);
+            MoveWindow(TexturePreview, padding + (colW + padding) * 2, padding, colW, listH, TRUE);
         if (MaterialList)
-            MoveWindow(MaterialList, padding + (colW + padding) * 2, padding, colW, listH, TRUE);
+            MoveWindow(MaterialList, padding + (colW + padding) * 3, padding, colW, listH, TRUE);
         if (NewMaterialBtn)
-            MoveWindow(NewMaterialBtn, padding + (colW + padding) * 2, padding + listH + 4, colW, 22, TRUE);
+            MoveWindow(NewMaterialBtn, padding + (colW + padding) * 3, padding + listH + 4, colW / 2 - 2, 22, TRUE);
         if (TonemapCheckbox)
-            MoveWindow(TonemapCheckbox, padding + colW + padding, padding + listH + 4, colW, 22, TRUE);
+            MoveWindow(TonemapCheckbox, padding + (colW + padding) * 2, padding + listH + 4, colW, 22, TRUE);
+        if (NewLevelBtn)
+            MoveWindow(NewLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2, padding + listH + 4, (colW / 2 - 2) / 3, 22, TRUE);
+        if (OpenLevelBtn)
+            MoveWindow(OpenLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + (colW / 2 - 2) / 3 + 2, padding + listH + 4, (colW / 2 - 2) / 3, 22, TRUE);
+        if (SaveLevelBtn)
+            MoveWindow(SaveLevelBtn, padding + (colW + padding) * 3 + colW / 2 + 2 + ((colW / 2 - 2) / 3 + 2) * 2, padding + listH + 4, (colW / 2 - 2) / 3, 22, TRUE);
     }
 
     // 同步 RHI 尺寸。
@@ -1827,6 +2557,18 @@ void FEngine::LayoutUI()
     bringTop(AtmoHeightLabel);
     bringTop(AtmoHeightSlider);
     bringTop(SkyLabel);
+    bringTop(RightPanel);
+    bringTop(OutlinerLabel);
+    bringTop(OutlinerList);
+    bringTop(DetailsLabel);
+    bringTop(DetailNameEdit);
+    bringTop(DetailPosXEdit);
+    bringTop(DetailPosYEdit);
+    bringTop(DetailPosZEdit);
+    bringTop(DetailScaleXEdit);
+    bringTop(DetailScaleYEdit);
+    bringTop(DetailScaleZEdit);
+    bringTop(ApplyDetailsBtn);
     bringTop(BottomPanel);
 }
 
@@ -2021,36 +2763,11 @@ PlacementDone:
     if (bCommitPlacement)
     {
         bCommitPlacement = false;
-        FSceneObject obj{};
-        obj.Type = CommitType;
-        obj.Position = PreviewPos;
-        if (obj.Type == FSceneObject::EType::RenderDocRock)
-        {
-            obj.Position.y += 0.39f;
-            obj.Scale = { 0.35f, 0.35f, 0.35f };
-        }
-        switch (obj.Type)
-        {
-        case FSceneObject::EType::Sphere: obj.Radius = 0.75f; break;
-        case FSceneObject::EType::Box: obj.Radius = 0.9f; break;
-        case FSceneObject::EType::Cone: obj.Radius = 0.9f; break;
-        case FSceneObject::EType::RenderDocRock: obj.Radius = 2.05f; break;
-        }
         // 按类型设置默认材质颜色。
-        // Default material per type
-        switch (obj.Type)
-        {
-        case FSceneObject::EType::Sphere: obj.Albedo = { 0.85f, 0.15f, 0.10f }; break;
-        case FSceneObject::EType::Box: obj.Albedo = { 0.18f, 0.55f, 0.95f }; break;
-        case FSceneObject::EType::Cone: obj.Albedo = { 0.95f, 0.75f, 0.20f }; break;
-        case FSceneObject::EType::RenderDocRock: obj.Albedo = { 0.45f, 0.45f, 0.45f }; break;
-        }
-        obj.Metallic = 0.0f;
-        obj.Roughness = 0.35f;
-        obj.MaterialIndex = -1;
-        obj.MaterialSRVBase = Renderer.AllocateMaterialSRVBlock();
-        Renderer.UpdateMaterialSRVBlock(obj.MaterialSRVBase, 0, 1, 2, 3, 4);
+        FSceneObject obj = MakeSceneObject(CommitType, PreviewPos);
         Objects.push_back(obj);
+        SetSelectedIndex((int)Objects.size() - 1);
+        MarkLevelDirty();
     }
 
     // 点击：优先拾取 Gizmo 轴，否则拾取物体。
@@ -2152,7 +2869,7 @@ PlacementDone:
                 }
             }
 
-            SelectedIndex = bestIdx;
+            SetSelectedIndex(bestIdx);
         }
     }
 
@@ -2189,11 +2906,13 @@ PlacementDone:
                 default: break;
                 }
                 Objects[SelectedIndex].Scale = newScale;
+                MarkLevelDirty();
             }
             else
             {
                 XMVECTOR newPos = XMVectorAdd(axisOrigin, XMVectorScale(axisDir, delta));
                 XMStoreFloat3(&Objects[SelectedIndex].Position, newPos);
+                MarkLevelDirty();
             }
         }
     }
@@ -2231,6 +2950,7 @@ void FEngine::Run(HINSTANCE hInstance)
         icc.dwICC = ICC_BAR_CLASSES;
         InitCommonControlsEx(&icc);
     }
+    InitializeEditorContent();
 
     // 创建主窗口与侧栏、视口基础。
     const wchar_t* baseTitle = L"ShellEngine";
@@ -2334,7 +3054,7 @@ void FEngine::Run(HINSTANCE hInstance)
 
         auto makeSlider = [&](int y, int id)
         {
-            return CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 8, y, SidebarWidthPx - 16, 26, Window.GetHwnd(), (HMENU)id, GetModuleHandleW(nullptr), nullptr);
+            return CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 8, y, SidebarWidthPx - 16, 26, Window.GetHwnd(), MenuHandle(id), GetModuleHandleW(nullptr), nullptr);
         };
 
         SunYawLabel = CreateWindowExW(0, L"STATIC", L"Sun Yaw", WS_CHILD | WS_VISIBLE, 8, 154, SidebarWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -2390,8 +3110,8 @@ void FEngine::Run(HINSTANCE hInstance)
 
         RECT rc{};
         GetClientRect(Window.GetHwnd(), &rc);
-        const int vw = std::max(1, (int)(rc.right - rc.left) - SidebarWidthPx);
-        const int vh = std::max(1, (int)(rc.bottom - rc.top));
+        const int vw = std::max(1, (int)(rc.right - rc.left) - SidebarWidthPx - RightPanelWidthPx);
+        const int vh = std::max(1, (int)(rc.bottom - rc.top) - BottomPanelHeightPx);
 
         ViewportHwnd = CreateWindowExW(
             0,
@@ -2426,6 +3146,34 @@ void FEngine::Run(HINSTANCE hInstance)
         GetClientRect(Window.GetHwnd(), &rc);
         const int clientW = (int)(rc.right - rc.left);
         const int clientH = (int)(rc.bottom - rc.top);
+        const int viewportW = std::max(1, clientW - SidebarWidthPx - RightPanelWidthPx);
+        const int viewportH = std::max(1, clientH - BottomPanelHeightPx);
+        const int rightX = SidebarWidthPx + viewportW;
+
+        RightPanel = CreateWindowExW(
+            0, L"STATIC", nullptr,
+            WS_CHILD | WS_VISIBLE,
+            rightX, 0, RightPanelWidthPx, viewportH,
+            Window.GetHwnd(), MenuHandle(5100), GetModuleHandleW(nullptr), nullptr);
+        OutlinerLabel = CreateWindowExW(0, L"STATIC", L"Level Outliner", WS_CHILD | WS_VISIBLE, rightX + 8, 8, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        OutlinerList = CreateWindowExW(0, L"LISTBOX", nullptr, WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT, rightX + 8, 30, RightPanelWidthPx - 16, 220, Window.GetHwnd(), MenuHandle(IDC_OUTLINER_LIST), GetModuleHandleW(nullptr), nullptr);
+        DetailsLabel = CreateWindowExW(0, L"STATIC", L"Details", WS_CHILD | WS_VISIBLE, rightX + 8, 270, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailNameEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 294, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailPosXEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 326, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailPosYEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 88, 326, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailPosZEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 168, 326, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailScaleXEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailScaleYEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 88, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailScaleZEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 168, 356, 72, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        ApplyDetailsBtn = CreateWindowExW(0, L"BUTTON", L"Apply Details", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, rightX + 8, 386, RightPanelWidthPx - 16, 24, Window.GetHwnd(), MenuHandle(IDC_APPLY_DETAILS), GetModuleHandleW(nullptr), nullptr);
+    }
+
+    // Bottom panel UI (content + textures + materials + level commands)
+    {
+        RECT rc{};
+        GetClientRect(Window.GetHwnd(), &rc);
+        const int clientW = (int)(rc.right - rc.left);
+        const int clientH = (int)(rc.bottom - rc.top);
 
         BottomPanel = CreateWindowExW(
             0, L"STATIC", nullptr,
@@ -2435,44 +3183,76 @@ void FEngine::Run(HINSTANCE hInstance)
             Window.GetHwnd(), (HMENU)2000, GetModuleHandleW(nullptr), nullptr);
 
         const int padding = 8;
-        const int colW = (clientW - padding * 4) / 3;
+        const int colW = (clientW - padding * 5) / 4;
         const int listH = BottomPanelHeightPx - padding * 2 - 26;
+
+        ContentList = CreateWindowExW(
+            0, L"LISTBOX", nullptr,
+            WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
+            padding, padding,
+            colW, listH,
+            BottomPanel, MenuHandle(IDC_CONTENT_LIST), GetModuleHandleW(nullptr), nullptr);
+
+        ImportObjBtn = CreateWindowExW(
+            0, L"BUTTON", L"Import OBJ",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            padding, padding + listH + 4,
+            colW / 2 - 2, 22,
+            BottomPanel, MenuHandle(IDC_IMPORT_OBJ), GetModuleHandleW(nullptr), nullptr);
+
+        PlaceAssetBtn = CreateWindowExW(
+            0, L"BUTTON", L"Place",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            padding + colW / 2 + 2, padding + listH + 4,
+            colW / 2 - 2, 22,
+            BottomPanel, MenuHandle(IDC_PLACE_ASSET), GetModuleHandleW(nullptr), nullptr);
 
         TextureList = CreateWindowExW(
             0, L"LISTBOX", nullptr,
             WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
-            padding, padding,
+            padding + colW + padding, padding,
             colW, listH,
             BottomPanel, (HMENU)2001, GetModuleHandleW(nullptr), nullptr);
 
         TexturePreview = CreateWindowExW(
             0, L"STATIC", nullptr,
             WS_CHILD | WS_VISIBLE | SS_BITMAP | SS_CENTERIMAGE,
-            padding + colW + padding, padding,
+            padding + (colW + padding) * 2, padding,
             colW, listH,
             BottomPanel, (HMENU)2002, GetModuleHandleW(nullptr), nullptr);
 
         MaterialList = CreateWindowExW(
             0, L"LISTBOX", nullptr,
             WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
-            padding + (colW + padding) * 2, padding,
+            padding + (colW + padding) * 3, padding,
             colW, listH,
             BottomPanel, (HMENU)2003, GetModuleHandleW(nullptr), nullptr);
 
         NewMaterialBtn = CreateWindowExW(
             0, L"BUTTON", L"New Material",
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            padding + (colW + padding) * 2, padding + listH + 4,
-            colW, 22,
+            padding + (colW + padding) * 3, padding + listH + 4,
+            colW / 2 - 2, 22,
             BottomPanel, (HMENU)2004, GetModuleHandleW(nullptr), nullptr);
 
         TonemapCheckbox = CreateWindowExW(
             0, L"BUTTON", L"Tonemap",
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            padding + colW + padding, padding + listH + 4,
+            padding + (colW + padding) * 2, padding + listH + 4,
             colW, 22,
             BottomPanel, (HMENU)2005, GetModuleHandleW(nullptr), nullptr);
         SendMessageW(TonemapCheckbox, BM_SETCHECK, bEnableTonemap ? BST_CHECKED : BST_UNCHECKED, 0);
+
+        const int levelButtonW = std::max(24, (colW / 2 - 8) / 3);
+        NewLevelBtn = CreateWindowExW(0, L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            padding + (colW + padding) * 3 + colW / 2 + 2, padding + listH + 4, levelButtonW, 22,
+            BottomPanel, MenuHandle(IDC_NEW_LEVEL), GetModuleHandleW(nullptr), nullptr);
+        OpenLevelBtn = CreateWindowExW(0, L"BUTTON", L"Open", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            padding + (colW + padding) * 3 + colW / 2 + 2 + levelButtonW + 2, padding + listH + 4, levelButtonW, 22,
+            BottomPanel, MenuHandle(IDC_OPEN_LEVEL), GetModuleHandleW(nullptr), nullptr);
+        SaveLevelBtn = CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            padding + (colW + padding) * 3 + colW / 2 + 2 + (levelButtonW + 2) * 2, padding + listH + 4, levelButtonW, 22,
+            BottomPanel, MenuHandle(IDC_SAVE_LEVEL), GetModuleHandleW(nullptr), nullptr);
 
         SetWindowLongPtrW(MaterialList, GWLP_USERDATA, (LONG_PTR)this);
         MaterialOldProc = (WNDPROC)SetWindowLongPtrW(MaterialList, GWLP_WNDPROC, (LONG_PTR)&FEngine::MaterialWndProc);
@@ -2482,6 +3262,7 @@ void FEngine::Run(HINSTANCE hInstance)
         SetWindowLongPtrW(BottomPanel, GWLP_USERDATA, (LONG_PTR)this);
         BottomOldProc = (WNDPROC)SetWindowLongPtrW(BottomPanel, GWLP_WNDPROC, (LONG_PTR)&FEngine::BottomWndProc);
     }
+    RefreshContentBrowser();
 
     // 初始布局，确保视口不与底栏重叠。
     // Make sure viewport does not overlap bottom panel at startup.
@@ -2491,6 +3272,8 @@ void FEngine::Run(HINSTANCE hInstance)
     // Create one default sphere in scene
     {
         FSceneObject obj{};
+        obj.Id = NextObjectId++;
+        obj.Name = L"Sphere " + std::to_wstring(obj.Id);
         obj.Type = FSceneObject::EType::Sphere;
         obj.Position = { 0.0f, 0.0f, 0.0f };
         obj.Radius = 0.75f;
@@ -2506,6 +3289,8 @@ void FEngine::Run(HINSTANCE hInstance)
 
     {
         FSceneObject obj{};
+        obj.Id = NextObjectId++;
+        obj.Name = L"RenderDoc Rock " + std::to_wstring(obj.Id);
         obj.Type = FSceneObject::EType::RenderDocRock;
         obj.Position = { 1.4f, 0.39f, 0.0f };
         obj.Scale = { 0.35f, 0.35f, 0.35f };
@@ -2517,6 +3302,8 @@ void FEngine::Run(HINSTANCE hInstance)
         obj.MaterialSRVBase = 0;
         Objects.push_back(obj);
     }
+    RefreshOutliner();
+    RefreshDetailsPanel();
 
     {
         RECT rc{};
@@ -2526,6 +3313,8 @@ void FEngine::Run(HINSTANCE hInstance)
         RHI.Init(ViewportHwnd, vw, vh);
     }
     Renderer.Init(RHI);
+    RefreshContentBrowser();
+    LoadContentMaterials();
 
     // 初始化后同步 HWRT 可用性与 UI。
     // Update HWRT UI availability after renderer init.
@@ -2634,6 +3423,9 @@ void FEngine::Run(HINSTANCE hInstance)
                     Objects[bestIdx].UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
                     Objects[bestIdx].UseMetallicTex = (mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
                     Objects[bestIdx].UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
+                    Objects[bestIdx].MaterialPath = mat.AssetPath;
+                    MarkLevelDirty();
+                    RefreshDetailsPanel();
                 }
             }
             bPendingMaterialDrop = false;
@@ -2663,22 +3455,7 @@ void FEngine::Run(HINSTANCE hInstance)
         // 更新窗口标题以展示选中信息。
         // Window title shows selected object position (minimal UE-like feedback)
         const wchar_t* pathName = (RenderPath == FSimpleSceneRenderer::ERenderPath::Deferred) ? L"Deferred" : L"Forward";
-        if (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size())
-        {
-            wchar_t title[256];
-            const auto& p = Objects[SelectedIndex].Position;
-            const float r = Objects[SelectedIndex].Roughness;
-            const float m = Objects[SelectedIndex].Metallic;
-            swprintf_s(title, L"%s  |  Path: %s  |  Pos: X=%.2f Y=%.2f Z=%.2f  |  Rough=%.3f Metal=%.3f  |  CamSpeed=%.2f Look=%.4f",
-                       baseTitle, pathName, p.x, p.y, p.z, r, m, CameraMoveSpeed, CameraLookSensitivity);
-            SetWindowTextW(Window.GetHwnd(), title);
-        }
-        else
-        {
-            wchar_t title[256];
-            swprintf_s(title, L"%s  |  Path: %s", baseTitle, pathName);
-            SetWindowTextW(Window.GetHwnd(), title);
-        }
+        UpdateWindowTitle(baseTitle, pathName);
     }
 
     // 退出前等待 GPU 完成并释放资源。

@@ -97,6 +97,7 @@ public:
      * @note 阶段：资源导入/上传阶段。
      */
     int CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint32 height, const uint8* rgba);
+    int CreateStaticMesh(FD3D12RHI& rhi, const std::vector<FVertex>& vertices, const std::vector<uint32>& indices);
     /**
      * @brief 分配一个材质 SRV 描述符块（5 个连续槽位）。
      * @param 无。
@@ -336,10 +337,12 @@ private:
     };
 
     const FMeshGPU& GetMesh(FSceneObject::EType type) const;
+    const FMeshGPU* GetMeshForObject(const FSceneObject& object) const;
 
     FMeshGPU MeshSphere;
     FMeshGPU MeshBox;
     FMeshGPU MeshCone;
+    std::vector<FMeshGPU> StaticMeshes;
 
     static constexpr uint32 MaxObjects = 256;
 

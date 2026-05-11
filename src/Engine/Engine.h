@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Win32.h"
+#include "Editor/EditorAssets.h"
 #include "Input/InputState.h"
 #include "Math/Camera.h"
 #include "Platform/Windows/WindowsWindow.h"
@@ -10,6 +11,8 @@
 
 #include <vector>
 #include <string>
+#include <filesystem>
+#include <unordered_map>
 
 class FEngine
 {
@@ -124,6 +127,12 @@ private:
     // Bottom assets/materials panel
     HWND BottomPanel = nullptr;
     static constexpr int BottomPanelHeightPx = 180;
+    HWND ContentList = nullptr;
+    HWND ImportObjBtn = nullptr;
+    HWND PlaceAssetBtn = nullptr;
+    HWND NewLevelBtn = nullptr;
+    HWND OpenLevelBtn = nullptr;
+    HWND SaveLevelBtn = nullptr;
     HWND TextureList = nullptr;
     HWND MaterialList = nullptr;
     HWND TexturePreview = nullptr;
@@ -144,6 +153,8 @@ private:
 
     struct FTextureAsset
     {
+        std::wstring Name;
+        std::wstring RelativePath;
         std::wstring Path;
         HBITMAP Preview = nullptr;
         DirectX::XMFLOAT3 AvgColor{ 1.0f, 1.0f, 1.0f };
@@ -152,6 +163,7 @@ private:
     struct FMaterialAsset
     {
         std::wstring Name;
+        std::wstring AssetPath;
         DirectX::XMFLOAT3 Albedo{ 0.8f, 0.8f, 0.8f };
         float Metallic = 0.0f;
         float Roughness = 0.5f;
@@ -160,6 +172,11 @@ private:
         int RoughnessTexIndex = -1;
         int MetallicTexIndex = -1;
         int AOTexIndex = -1;
+        std::wstring AlbedoTexPath;
+        std::wstring NormalTexPath;
+        std::wstring RoughnessTexPath;
+        std::wstring MetallicTexPath;
+        std::wstring AOTexPath;
 
         int AlbedoTexSlot = 0;
         int NormalTexSlot = 0;
@@ -228,6 +245,32 @@ private:
      * @note 阶段：资源导入阶段（编辑器交互）。
      */
     void AddTextureFromFile(const std::wstring& path);
+    void InitializeEditorContent();
+    void RefreshContentBrowser();
+    void RefreshOutliner();
+    void RefreshDetailsPanel();
+    void SetSelectedIndex(int index);
+    void MarkLevelDirty();
+    void UpdateWindowTitle(const wchar_t* baseTitle, const wchar_t* pathName);
+    void NewLevel();
+    void SaveCurrentLevel(bool saveAs);
+    void OpenLevelFromDialog();
+    void LoadLevelFromPath(const std::filesystem::path& path);
+    void ImportObjFromDialog();
+    void PlaceSelectedContentAsset();
+    int EnsureStaticMeshLoaded(const std::wstring& relativePath);
+    int EnsureTextureLoaded(const std::wstring& relativePath);
+    int FindTextureByRelativePath(const std::wstring& relativePath) const;
+    int FindMaterialByAssetPath(const std::wstring& relativePath) const;
+    void LoadContentMaterials();
+    void SaveMaterialAsset(int materialIndex);
+    void ApplyMaterialToObject(int objectIndex, int materialIndex);
+    FSceneObject MakeSceneObject(FSceneObject::EType type, const DirectX::XMFLOAT3& position, const std::wstring& assetPath = L"");
+    editor::FLevelFile BuildLevelFile() const;
+    void ApplyLevelFile(const editor::FLevelFile& level, const std::filesystem::path& path);
+    static std::wstring SceneObjectTypeToString(FSceneObject::EType type);
+    static FSceneObject::EType SceneObjectTypeFromString(const std::wstring& type);
+    void ApplyDetailsEdits();
 
     // Viewport (child window hosting swapchain)
     HWND ViewportHwnd = nullptr;
@@ -311,4 +354,30 @@ private:
     // Viewport navigation tuning
     float CameraMoveSpeed = 3.0f;         // units/sec
     float CameraLookSensitivity = 0.0018f / 5.0f; // radians per raw mouse count
+
+    // UE-like editor state
+    static constexpr int RightPanelWidthPx = 260;
+    HWND RightPanel = nullptr;
+    HWND OutlinerLabel = nullptr;
+    HWND OutlinerList = nullptr;
+    HWND DetailsLabel = nullptr;
+    HWND DetailNameEdit = nullptr;
+    HWND DetailPosXEdit = nullptr;
+    HWND DetailPosYEdit = nullptr;
+    HWND DetailPosZEdit = nullptr;
+    HWND DetailScaleXEdit = nullptr;
+    HWND DetailScaleYEdit = nullptr;
+    HWND DetailScaleZEdit = nullptr;
+    HWND ApplyDetailsBtn = nullptr;
+    bool bSuppressOutlinerEvents = false;
+
+    std::filesystem::path ContentRoot;
+    editor::FContentLayout ContentLayout{};
+    std::vector<editor::FAssetRecord> ContentAssets;
+    std::unordered_map<std::wstring, int> StaticMeshByAsset;
+    std::unordered_map<std::wstring, float> StaticMeshRadiusByAsset;
+    uint32 NextObjectId = 1;
+    std::filesystem::path CurrentLevelPath;
+    std::wstring CurrentLevelName = L"Untitled";
+    bool bLevelDirty = false;
 };

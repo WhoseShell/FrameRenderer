@@ -4,6 +4,8 @@
 
 #include "Core/Types.h"
 
+#include <string>
+
 struct FSceneObject
 {
     enum class EType : uint8
@@ -12,9 +14,15 @@ struct FSceneObject
         Box,
         Cone,
         RenderDocRock,
+        StaticMesh,
     };
 
+    uint32 Id = 0;
+    std::wstring Name;
     EType Type = EType::Sphere;
+    std::wstring AssetPath;
+    std::wstring MaterialPath;
+    int StaticMeshIndex = -1;
     DirectX::XMFLOAT3 Position{ 0.0f, 0.0f, 0.0f };
     DirectX::XMFLOAT3 Scale{ 1.0f, 1.0f, 1.0f };
     float Radius = 0.75f; // for picking (bounding sphere)
@@ -38,6 +46,16 @@ inline bool IsProceduralSceneObject(FSceneObject::EType type)
     return type == FSceneObject::EType::Sphere
         || type == FSceneObject::EType::Box
         || type == FSceneObject::EType::Cone;
+}
+
+inline bool IsStaticMeshSceneObject(FSceneObject::EType type)
+{
+    return type == FSceneObject::EType::StaticMesh;
+}
+
+inline bool IsMeshSceneObject(FSceneObject::EType type)
+{
+    return IsProceduralSceneObject(type) || IsStaticMeshSceneObject(type);
 }
 
 inline bool IsRenderDocRockObject(FSceneObject::EType type)

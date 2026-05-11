@@ -24,6 +24,8 @@ target_compile_definitions(renderdoc_capture PUBLIC
 add_executable(dx12_hello
     WIN32
     src/main.cpp
+    src/Editor/EditorAssets.cpp
+    src/Editor/ObjLoader.cpp
     src/Engine/Engine.cpp
     src/Platform/Windows/WindowsWindow.cpp
     src/RHI/D3D12RHI.cpp
@@ -51,6 +53,7 @@ target_compile_definitions(dx12_hello PRIVATE
     WIN32_LEAN_AND_MEAN
     SHADER_DIR=L"${CMAKE_CURRENT_SOURCE_DIR}/shaders"
     ASSET_DIR=L"${CMAKE_CURRENT_SOURCE_DIR}/assets"
+    CONTENT_DIR=L"${CMAKE_CURRENT_SOURCE_DIR}/Content"
 )
 
 # D3D12 + DXGI + Shader compiler (D3DCompileFromFile uses D3DCompiler_47.dll)
