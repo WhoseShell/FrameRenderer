@@ -21,6 +21,8 @@ struct FCaptureRockFrameInputs
     D3D12_CPU_DESCRIPTOR_HANDLE DepthDSV{};
     D3D12_VIEWPORT Viewport{};
     D3D12_RECT Scissor{};
+    DirectX::XMFLOAT4X4 ViewProj{};
+    DirectX::XMFLOAT3 CameraPositionWs{};
     uint32 FrameIndex = 0;
 };
 
@@ -81,6 +83,7 @@ private:
         DirectX::XMFLOAT4 SunDirectionAndAmbient;
         DirectX::XMFLOAT4 SunColorAndIntensity;
         DirectX::XMFLOAT4 MaterialParams;
+        DirectX::XMFLOAT4 RockWorld;
     };
 
     void LoadManifest(const std::filesystem::path& manifestPath);
@@ -140,6 +143,9 @@ private:
     float Metallic_ = 0.0f;
     float NormalStrength_ = 0.35f;
     float BaseColorBoost_ = 1.08f;
+    DirectX::XMFLOAT3 BasePositionWorld_{ 0.0f, 0.0f, 0.0f };
+    float UniformScale_ = 0.35f;
+    bool bSitOnGround_ = true;
     bool bLoaded_ = false;
 };
 }

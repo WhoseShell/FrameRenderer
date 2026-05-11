@@ -239,7 +239,9 @@ private:
         const FD3D12FrameContext& frame,
         const D3D12_VIEWPORT& vp,
         const D3D12_RECT& sc,
-        D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv);
+        D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv,
+        const DirectX::XMFLOAT4X4& viewProj,
+        const DirectX::XMFLOAT3& cameraPositionWs);
     void AddHDRToSRVPass(FRenderGraphBuilder& graph);
     void AddTonemapPass(FRenderGraphBuilder& graph, const FD3D12FrameContext& frame, const D3D12_VIEWPORT& vp, const D3D12_RECT& sc);
 

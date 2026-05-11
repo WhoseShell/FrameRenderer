@@ -266,6 +266,16 @@ void FCaptureRockRenderer::LoadManifest(const std::filesystem::path& manifestPat
     BoundsMinCapture_ = ReadFloat3(mesh, "bounds_min_capture");
     BoundsMaxCapture_ = ReadFloat3(mesh, "bounds_max_capture");
 
+    if (const FJsonValue* placement = root.Find("placement"))
+    {
+        BasePositionWorld_ = ReadFloat3(*placement, "base_position_world");
+        UniformScale_ = ReadFloatMember(*placement, "uniform_scale");
+        if (const FJsonValue* sitOnGround = placement->Find("sit_on_ground"); sitOnGround && sitOnGround->IsBool())
+        {
+            bSitOnGround_ = sitOnGround->AsBool();
+        }
+    }
+
     const FJsonValue& lighting = RequireMember(root, "lighting");
     SunDirectionEngine_ = NormalizeOrUp(ReadFloat3(lighting, "sun_direction_engine"));
     SunColor_ = ReadFloat3(lighting, "sun_color");
@@ -709,25 +719,20 @@ void FCaptureRockRenderer::CreateConstantBuffers(ID3D12Device* device)
 void FCaptureRockRenderer::UpdateConstants(const FCaptureRockFrameInputs& inputs)
 {
     using namespace DirectX;
-    const float width = (std::max)(1.0f, inputs.Viewport.Width);
-    const float height = (std::max)(1.0f, inputs.Viewport.Height);
-    const float aspect = width / height;
-
-    const float radius = (std::max)(BoundsRadius_, 0.5f);
-    const XMVECTOR eye = XMVectorSet(radius * 2.2f, radius * 1.15f, -radius * 8.0f, 1.0f);
-    const XMVECTOR target = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
-    const XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    const XMMATRIX view = XMMatrixLookAtLH(eye, target, up);
-    const XMMATRIX proj = XMMatrixPerspectiveFovLH(XMConvertToRadians(30.0f), aspect, 0.01f, radius * 20.0f);
+    const float scale = (std::max)(UniformScale_, 0.001f);
+    XMFLOAT3 rockWorld = BasePositionWorld_;
+    if (bSitOnGround_)
+    {
+        rockWorld.y -= BoundsMinEngine_.y * scale;
+    }
 
     FConstants constants{};
-    XMStoreFloat4x4(&constants.ViewProj, view * proj);
-    XMFLOAT3 eyeFloat{};
-    XMStoreFloat3(&eyeFloat, eye);
-    constants.CameraPosition = XMFLOAT4(eyeFloat.x, eyeFloat.y, eyeFloat.z, 1.0f);
+    constants.ViewProj = inputs.ViewProj;
+    constants.CameraPosition = XMFLOAT4(inputs.CameraPositionWs.x, inputs.CameraPositionWs.y, inputs.CameraPositionWs.z, 1.0f);
     constants.SunDirectionAndAmbient = XMFLOAT4(SunDirectionEngine_.x, SunDirectionEngine_.y, SunDirectionEngine_.z, AmbientIntensity_);
     constants.SunColorAndIntensity = XMFLOAT4(SunColor_.x, SunColor_.y, SunColor_.z, SunIntensity_);
     constants.MaterialParams = XMFLOAT4(Roughness_, Metallic_, NormalStrength_, BaseColorBoost_);
+    constants.RockWorld = XMFLOAT4(rockWorld.x, rockWorld.y, rockWorld.z, scale);
 
     const uint32 frameIndex = inputs.FrameIndex % FD3D12RHI::kFrameCount;
     std::memcpy(ConstantBufferMapped_[frameIndex], &constants, sizeof(constants));

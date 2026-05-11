@@ -213,7 +213,7 @@ void FSceneRenderer::Render()
     const bool renderDocRockMode = Renderer.IsRenderDocRockLoaded();
     if (renderDocRockMode)
     {
-        Renderer.AddRenderDocRockPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv);
+        Renderer.AddRenderDocRockPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv, ViewInfo.ViewProj, View.Camera->Position);
     }
     else
     {

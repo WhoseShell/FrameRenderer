@@ -5,6 +5,7 @@ cbuffer RockFrame : register(b0)
     float4 gSunDirection;
     float4 gSunColorIntensity;
     float4 gMaterialParams;
+    float4 gRockWorld;
 };
 
 Texture2D gBaseColor : register(t0);
@@ -88,11 +89,12 @@ float3 EvaluateBRDF(float3 n, float3 v, float3 l, float3 albedo, float metallic,
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    output.WorldPosition = input.Position;
+    float3 worldPosition = input.Position * gRockWorld.w + gRockWorld.xyz;
+    output.WorldPosition = worldPosition;
     output.Normal = normalize(input.Normal);
     output.UV = input.UV;
     output.Color = input.Color;
-    output.Position = mul(float4(input.Position, 1.0), gViewProj);
+    output.Position = mul(float4(worldPosition, 1.0), gViewProj);
     return output;
 }
 

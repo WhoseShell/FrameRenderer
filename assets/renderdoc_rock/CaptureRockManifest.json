@@ -19,6 +19,11 @@
     "position_transform": "engine = (capture - capture_bounds_center).xzy",
     "normal_transform": "engine = normalize(capture.xzy)"
   },
+  "placement": {
+    "base_position_world": [0.0, 0.0, 0.0],
+    "uniform_scale": 0.35,
+    "sit_on_ground": true
+  },
   "mesh": {
     "positions": "meshes/16731_positions.bin",
     "normals": "meshes/16731_normals.bin",
