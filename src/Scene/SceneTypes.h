@@ -11,6 +11,7 @@ struct FSceneObject
         Sphere,
         Box,
         Cone,
+        RenderDocRock,
     };
 
     EType Type = EType::Sphere;
@@ -31,3 +32,15 @@ struct FSceneObject
     float UseMetallicTex = 0.0f;
     float UseAOTex = 0.0f;
 };
+
+inline bool IsProceduralSceneObject(FSceneObject::EType type)
+{
+    return type == FSceneObject::EType::Sphere
+        || type == FSceneObject::EType::Box
+        || type == FSceneObject::EType::Cone;
+}
+
+inline bool IsRenderDocRockObject(FSceneObject::EType type)
+{
+    return type == FSceneObject::EType::RenderDocRock;
+}

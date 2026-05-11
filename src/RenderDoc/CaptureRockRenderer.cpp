@@ -697,7 +697,7 @@ void FCaptureRockRenderer::CreateConstantBuffers(ID3D12Device* device)
     ConstantBufferSize_ = Align256(sizeof(FConstants));
     D3D12_HEAP_PROPERTIES uploadHeap{};
     uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
-    const D3D12_RESOURCE_DESC desc = MakeBufferDesc(ConstantBufferSize_);
+    const D3D12_RESOURCE_DESC desc = MakeBufferDesc(static_cast<uint64>(ConstantBufferSize_) * kMaxRockInstances);
 
     for (uint32 i = 0; i < FD3D12RHI::kFrameCount; ++i)
     {
@@ -716,37 +716,39 @@ void FCaptureRockRenderer::CreateConstantBuffers(ID3D12Device* device)
     }
 }
 
-void FCaptureRockRenderer::UpdateConstants(const FCaptureRockFrameInputs& inputs)
+FCaptureRockRenderer::FConstants FCaptureRockRenderer::BuildConstants(
+    const FCaptureRockFrameInputs& inputs,
+    const FCaptureRockInstance& instance) const
 {
     using namespace DirectX;
-    const float scale = (std::max)(UniformScale_, 0.001f);
-    XMFLOAT3 rockWorld = BasePositionWorld_;
-    if (bSitOnGround_)
-    {
-        rockWorld.y -= BoundsMinEngine_.y * scale;
-    }
+    const XMMATRIX scale = XMMatrixScaling(
+        (std::max)(instance.Scale.x, 0.001f),
+        (std::max)(instance.Scale.y, 0.001f),
+        (std::max)(instance.Scale.z, 0.001f));
+    const XMMATRIX translation = XMMatrixTranslation(instance.Position.x, instance.Position.y, instance.Position.z);
+    const XMMATRIX world = scale * translation;
+    const XMMATRIX worldInvTranspose = XMMatrixTranspose(XMMatrixInverse(nullptr, world));
 
     FConstants constants{};
     constants.ViewProj = inputs.ViewProj;
+    XMStoreFloat4x4(&constants.RockWorld, world);
+    XMStoreFloat4x4(&constants.RockWorldInvTranspose, worldInvTranspose);
     constants.CameraPosition = XMFLOAT4(inputs.CameraPositionWs.x, inputs.CameraPositionWs.y, inputs.CameraPositionWs.z, 1.0f);
     constants.SunDirectionAndAmbient = XMFLOAT4(SunDirectionEngine_.x, SunDirectionEngine_.y, SunDirectionEngine_.z, AmbientIntensity_);
     constants.SunColorAndIntensity = XMFLOAT4(SunColor_.x, SunColor_.y, SunColor_.z, SunIntensity_);
     constants.MaterialParams = XMFLOAT4(Roughness_, Metallic_, NormalStrength_, BaseColorBoost_);
-    constants.RockWorld = XMFLOAT4(rockWorld.x, rockWorld.y, rockWorld.z, scale);
-
-    const uint32 frameIndex = inputs.FrameIndex % FD3D12RHI::kFrameCount;
-    std::memcpy(ConstantBufferMapped_[frameIndex], &constants, sizeof(constants));
+    return constants;
 }
 
 void FCaptureRockRenderer::Render(ID3D12GraphicsCommandList* cmd, const FCaptureRockFrameInputs& inputs)
 {
-    if (!bLoaded_ || !cmd)
+    if (!bLoaded_ || !cmd || inputs.Instances.empty())
     {
         return;
     }
 
-    UpdateConstants(inputs);
     const uint32 frameIndex = inputs.FrameIndex % FD3D12RHI::kFrameCount;
+    const uint32 instanceCount = (std::min<uint32>)(static_cast<uint32>(inputs.Instances.size()), kMaxRockInstances);
 
     ID3D12DescriptorHeap* heaps[] = { SrvHeap_.Get() };
     cmd->SetDescriptorHeaps(1, heaps);
@@ -755,12 +757,20 @@ void FCaptureRockRenderer::Render(ID3D12GraphicsCommandList* cmd, const FCapture
     cmd->RSSetViewports(1, &inputs.Viewport);
     cmd->RSSetScissorRects(1, &inputs.Scissor);
     cmd->OMSetRenderTargets(1, &inputs.TargetRTV, FALSE, &inputs.DepthDSV);
-    cmd->SetGraphicsRootConstantBufferView(0, ConstantBuffers_[frameIndex]->GetGPUVirtualAddress());
     cmd->SetGraphicsRootDescriptorTable(1, SrvHeap_->GetGPUDescriptorHandleForHeapStart());
     cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmd->IASetVertexBuffers(0, 1, &VertexBufferView_);
     cmd->IASetIndexBuffer(&IndexBufferView_);
-    cmd->DrawIndexedInstanced(IndexCount_, 1, 0, 0, 0);
+    for (uint32 i = 0; i < instanceCount; ++i)
+    {
+        const FConstants constants = BuildConstants(inputs, inputs.Instances[i]);
+        uint8* dst = ConstantBufferMapped_[frameIndex] + static_cast<size_t>(ConstantBufferSize_) * i;
+        std::memcpy(dst, &constants, sizeof(constants));
+        cmd->SetGraphicsRootConstantBufferView(
+            0,
+            ConstantBuffers_[frameIndex]->GetGPUVirtualAddress() + static_cast<UINT64>(ConstantBufferSize_) * i);
+        cmd->DrawIndexedInstanced(IndexCount_, 1, 0, 0, 0);
+    }
 }
 
 std::wstring FCaptureRockRenderer::FormatSummary() const

@@ -1,11 +1,12 @@
 cbuffer RockFrame : register(b0)
 {
     row_major float4x4 gViewProj;
+    row_major float4x4 gRockWorld;
+    row_major float4x4 gRockWorldInvTranspose;
     float4 gCameraPosition;
     float4 gSunDirection;
     float4 gSunColorIntensity;
     float4 gMaterialParams;
-    float4 gRockWorld;
 };
 
 Texture2D gBaseColor : register(t0);
@@ -89,9 +90,9 @@ float3 EvaluateBRDF(float3 n, float3 v, float3 l, float3 albedo, float metallic,
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    float3 worldPosition = input.Position * gRockWorld.w + gRockWorld.xyz;
+    float3 worldPosition = mul(float4(input.Position, 1.0), gRockWorld).xyz;
     output.WorldPosition = worldPosition;
-    output.Normal = normalize(input.Normal);
+    output.Normal = normalize(mul(input.Normal, (float3x3)gRockWorldInvTranspose));
     output.UV = input.UV;
     output.Color = input.Color;
     output.Position = mul(float4(worldPosition, 1.0), gViewProj);

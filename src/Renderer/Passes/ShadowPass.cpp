@@ -180,6 +180,10 @@ void FSimpleSceneRenderer::AddShadowPass(
         const uint32 drawCount = (uint32)std::min<size_t>(objects.size(), MaxObjects);
         for (uint32 i = 0; i < drawCount; ++i)
         {
+            if (!IsProceduralSceneObject(objects[i].Type))
+            {
+                continue;
+            }
             const auto& mesh = GetMesh(objects[i].Type);
             cl->SetGraphicsRootConstantBufferView(0, cbBase + (UINT64)CBSize * i);
             cl->IASetVertexBuffers(0, 1, &mesh.VBView);
@@ -187,7 +191,7 @@ void FSimpleSceneRenderer::AddShadowPass(
             cl->DrawIndexedInstanced(mesh.IndexCount, 1, 0, 0, 0);
         }
 
-        if (previewPos && drawCount < MaxObjects)
+        if (previewPos && drawCount < MaxObjects && IsProceduralSceneObject(previewType))
         {
             // 预览对象写入阴影贴图。
             const auto& mesh = GetMesh(previewType);

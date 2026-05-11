@@ -214,7 +214,17 @@ void FSceneRenderer::Render()
     RenderPath(graph, hdrRtv);
     if (renderDocRockMode)
     {
-        Renderer.AddRenderDocRockPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor, hdrRtv, ViewInfo.ViewProj, View.Camera->Position);
+        Renderer.AddRenderDocRockPass(
+            graph,
+            Frame,
+            ViewInfo.Viewport,
+            ViewInfo.Scissor,
+            hdrRtv,
+            ViewInfo.ViewProj,
+            View.Camera->Position,
+            objects,
+            Inputs.PreviewPos,
+            Inputs.PreviewType);
     }
     if (hasSelection && Renderer.GizmoMapped)
     {
@@ -389,6 +399,10 @@ void FForwardShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_
         const uint32 drawCount = (uint32)std::min<size_t>(Inputs.Objects->size(), FSimpleSceneRenderer::MaxObjects);
         for (uint32 i = 0; i < drawCount; ++i)
         {
+            if (!IsProceduralSceneObject((*Inputs.Objects)[i].Type))
+            {
+                continue;
+            }
             const auto& mesh = Renderer.GetMesh((*Inputs.Objects)[i].Type);
             cl->SetGraphicsRootConstantBufferView(0, cbBase + (UINT64)Renderer.CBSize * i);
             if (srvHeap)
@@ -403,7 +417,7 @@ void FForwardShadingSceneRenderer::RenderPath(FRenderGraphBuilder& graph, D3D12_
             cl->DrawIndexedInstanced(mesh.IndexCount, 1, 0, 0, 0);
         }
 
-        if (Inputs.PreviewPos && drawCount < FSimpleSceneRenderer::MaxObjects)
+        if (Inputs.PreviewPos && drawCount < FSimpleSceneRenderer::MaxObjects && IsProceduralSceneObject(Inputs.PreviewType))
         {
             // 绘制预览对象。
             const auto& mesh = Renderer.GetMesh(Inputs.PreviewType);

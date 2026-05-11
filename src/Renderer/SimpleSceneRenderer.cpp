@@ -1237,7 +1237,10 @@ void FSimpleSceneRenderer::AddRenderDocRockPass(
     const D3D12_RECT& sc,
     D3D12_CPU_DESCRIPTOR_HANDLE hdrRtv,
     const DirectX::XMFLOAT4X4& viewProj,
-    const DirectX::XMFLOAT3& cameraPositionWs)
+    const DirectX::XMFLOAT3& cameraPositionWs,
+    const std::vector<FSceneObject>& objects,
+    const DirectX::XMFLOAT3* previewPos,
+    FSceneObject::EType previewType)
 {
     if (!RenderDocRockRenderer.IsLoaded())
     {
@@ -1252,6 +1255,24 @@ void FSimpleSceneRenderer::AddRenderDocRockPass(
     inputs.ViewProj = viewProj;
     inputs.CameraPositionWs = cameraPositionWs;
     inputs.FrameIndex = frame.FrameIndex;
+    const uint32 drawCount = (uint32)std::min<size_t>(objects.size(), MaxObjects);
+    for (uint32 i = 0; i < drawCount; ++i)
+    {
+        if (IsRenderDocRockObject(objects[i].Type))
+        {
+            inputs.Instances.push_back({ objects[i].Position, objects[i].Scale });
+        }
+    }
+    if (previewPos && IsRenderDocRockObject(previewType))
+    {
+        DirectX::XMFLOAT3 previewPosition = *previewPos;
+        previewPosition.y += 0.39f;
+        inputs.Instances.push_back({ previewPosition, { 0.35f, 0.35f, 0.35f } });
+    }
+    if (inputs.Instances.empty())
+    {
+        return;
+    }
 
     auto* rock = &RenderDocRockRenderer;
     graph.AddPass("RenderDocRock", [rock, inputs](ID3D12GraphicsCommandList* cl)
@@ -1889,8 +1910,15 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
         return 0;
 
     const uint32 drawCount = (uint32)std::min<size_t>(objects.size(), MaxObjects);
-    const bool bHasPreview = (previewPos && drawCount < MaxObjects);
-    const uint32 instanceCount = drawCount + (bHasPreview ? 1u : 0u);
+    const bool bHasPreview = (previewPos && drawCount < MaxObjects && IsProceduralSceneObject(previewType));
+    uint32 instanceCount = bHasPreview ? 1u : 0u;
+    for (uint32 i = 0; i < drawCount; ++i)
+    {
+        if (IsProceduralSceneObject(objects[i].Type))
+        {
+            ++instanceCount;
+        }
+    }
     if (instanceCount == 0)
         return 0;
 
@@ -2078,8 +2106,14 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
         inst[instanceIndex] = id;
     };
 
+    uint32 instanceIndex = 0;
     for (uint32 i = 0; i < drawCount; ++i)
-        writeInstance(i, objects[i]);
+    {
+        if (IsProceduralSceneObject(objects[i].Type))
+        {
+            writeInstance(instanceIndex++, objects[i]);
+        }
+    }
 
     if (bHasPreview)
     {
@@ -2090,11 +2124,11 @@ uint32 FSimpleSceneRenderer::PrepareRaytracingScene(
         preview.Albedo = { 0.35f, 0.9f, 0.35f };
         preview.Metallic = 0.0f;
         preview.Roughness = 0.6f;
-        writeInstance(drawCount, preview);
+        writeInstance(instanceIndex++, preview);
     }
 
-    RTObjectInstanceCount[frameIndex] = instanceCount;
-    return instanceCount;
+    RTObjectInstanceCount[frameIndex] = instanceIndex;
+    return instanceIndex;
 }
 
 /**

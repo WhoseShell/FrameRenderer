@@ -15,6 +15,12 @@
 
 namespace rdcimport
 {
+struct FCaptureRockInstance
+{
+    DirectX::XMFLOAT3 Position{ 0.0f, 0.0f, 0.0f };
+    DirectX::XMFLOAT3 Scale{ 1.0f, 1.0f, 1.0f };
+};
+
 struct FCaptureRockFrameInputs
 {
     D3D12_CPU_DESCRIPTOR_HANDLE TargetRTV{};
@@ -23,6 +29,7 @@ struct FCaptureRockFrameInputs
     D3D12_RECT Scissor{};
     DirectX::XMFLOAT4X4 ViewProj{};
     DirectX::XMFLOAT3 CameraPositionWs{};
+    std::vector<FCaptureRockInstance> Instances;
     uint32 FrameIndex = 0;
 };
 
@@ -44,6 +51,7 @@ public:
 
 private:
     static constexpr uint32 kTextureSlots = 8;
+    static constexpr uint32 kMaxRockInstances = 64;
 
     struct FTextureSlot
     {
@@ -79,11 +87,12 @@ private:
     struct FConstants
     {
         DirectX::XMFLOAT4X4 ViewProj;
+        DirectX::XMFLOAT4X4 RockWorld;
+        DirectX::XMFLOAT4X4 RockWorldInvTranspose;
         DirectX::XMFLOAT4 CameraPosition;
         DirectX::XMFLOAT4 SunDirectionAndAmbient;
         DirectX::XMFLOAT4 SunColorAndIntensity;
         DirectX::XMFLOAT4 MaterialParams;
-        DirectX::XMFLOAT4 RockWorld;
     };
 
     void LoadManifest(const std::filesystem::path& manifestPath);
@@ -92,7 +101,7 @@ private:
     void CreateRootSignature(ID3D12Device* device);
     void CreatePipelineState(ID3D12Device* device, DXGI_FORMAT colorFormat, DXGI_FORMAT depthFormat);
     void CreateConstantBuffers(ID3D12Device* device);
-    void UpdateConstants(const FCaptureRockFrameInputs& inputs);
+    FConstants BuildConstants(const FCaptureRockFrameInputs& inputs, const FCaptureRockInstance& instance) const;
 
     std::filesystem::path ResolveAssetPath(const std::filesystem::path& relativePath) const;
     void CreateTextureSRV(ID3D12Device* device, const FTextureResource& texture, uint32 slot);

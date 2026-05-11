@@ -651,6 +651,7 @@ LRESULT CALLBACK FEngine::SidebarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             case 0: engine->PaletteType = FSceneObject::EType::Sphere; break;
             case 1: engine->PaletteType = FSceneObject::EType::Box; break;
             case 2: engine->PaletteType = FSceneObject::EType::Cone; break;
+            case 3: engine->PaletteType = FSceneObject::EType::RenderDocRock; break;
             default: break;
             }
             return r;
@@ -1219,6 +1220,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             case 0: PaletteType = FSceneObject::EType::Sphere; break;
             case 1: PaletteType = FSceneObject::EType::Box; break;
             case 2: PaletteType = FSceneObject::EType::Cone; break;
+            case 3: PaletteType = FSceneObject::EType::RenderDocRock; break;
             default: break;
             }
             return 0;
@@ -2022,11 +2024,17 @@ PlacementDone:
         FSceneObject obj{};
         obj.Type = CommitType;
         obj.Position = PreviewPos;
+        if (obj.Type == FSceneObject::EType::RenderDocRock)
+        {
+            obj.Position.y += 0.39f;
+            obj.Scale = { 0.35f, 0.35f, 0.35f };
+        }
         switch (obj.Type)
         {
         case FSceneObject::EType::Sphere: obj.Radius = 0.75f; break;
         case FSceneObject::EType::Box: obj.Radius = 0.9f; break;
         case FSceneObject::EType::Cone: obj.Radius = 0.9f; break;
+        case FSceneObject::EType::RenderDocRock: obj.Radius = 2.05f; break;
         }
         // 按类型设置默认材质颜色。
         // Default material per type
@@ -2035,6 +2043,7 @@ PlacementDone:
         case FSceneObject::EType::Sphere: obj.Albedo = { 0.85f, 0.15f, 0.10f }; break;
         case FSceneObject::EType::Box: obj.Albedo = { 0.18f, 0.55f, 0.95f }; break;
         case FSceneObject::EType::Cone: obj.Albedo = { 0.95f, 0.75f, 0.20f }; break;
+        case FSceneObject::EType::RenderDocRock: obj.Albedo = { 0.45f, 0.45f, 0.45f }; break;
         }
         obj.Metallic = 0.0f;
         obj.Roughness = 0.35f;
@@ -2260,6 +2269,7 @@ void FEngine::Run(HINSTANCE hInstance)
     SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Sphere");
     SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Box");
     SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Cone");
+    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"RenderDoc Rock");
     SendMessageW(SidebarList, LB_SETCURSEL, 0, 0);
 
     // Subclass sidebar to support drag-to-place
@@ -2492,6 +2502,20 @@ void FEngine::Run(HINSTANCE hInstance)
         Renderer.UpdateMaterialSRVBlock(obj.MaterialSRVBase, 0, 1, 2, 3, 4);
         Objects.push_back(obj);
         SelectedIndex = 0;
+    }
+
+    {
+        FSceneObject obj{};
+        obj.Type = FSceneObject::EType::RenderDocRock;
+        obj.Position = { 1.4f, 0.39f, 0.0f };
+        obj.Scale = { 0.35f, 0.35f, 0.35f };
+        obj.Radius = 2.05f;
+        obj.Albedo = { 0.45f, 0.45f, 0.45f };
+        obj.Metallic = 0.0f;
+        obj.Roughness = 0.82f;
+        obj.MaterialIndex = -1;
+        obj.MaterialSRVBase = 0;
+        Objects.push_back(obj);
     }
 
     {

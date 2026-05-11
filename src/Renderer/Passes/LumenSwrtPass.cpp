@@ -231,8 +231,15 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
     const int prevIdx = 1 - (int(frameIndex) & 1);
 
     const uint32 drawCount = (uint32)std::min<size_t>(objects.size(), MaxObjects);
-    const bool bHasPreview = (previewPos && drawCount < MaxObjects);
-    const uint32 instanceCount = drawCount + (bHasPreview ? 1u : 0u);
+    const bool bHasPreview = (previewPos && drawCount < MaxObjects && IsProceduralSceneObject(previewType));
+    uint32 instanceCount = bHasPreview ? 1u : 0u;
+    for (uint32 i = 0; i < drawCount; ++i)
+    {
+        if (IsProceduralSceneObject(objects[i].Type))
+        {
+            ++instanceCount;
+        }
+    }
     if (instanceCount == 0)
         return 0;
 
@@ -323,8 +330,14 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
         std::memcpy(RTObjectMapped[frameIndex] + size_t(instanceIndex) * sizeof(FRTObjectData), &o, sizeof(o));
     };
 
+    uint32 instanceIndex = 0;
     for (uint32 i = 0; i < drawCount; ++i)
-        writeObject(i, objects[i]);
+    {
+        if (IsProceduralSceneObject(objects[i].Type))
+        {
+            writeObject(instanceIndex++, objects[i]);
+        }
+    }
 
     if (bHasPreview)
     {
@@ -335,10 +348,10 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
         preview.Albedo = { 0.35f, 0.9f, 0.35f };
         preview.Metallic = 0.0f;
         preview.Roughness = 0.6f;
-        writeObject(drawCount, preview);
+        writeObject(instanceIndex++, preview);
     }
 
-    RTObjectInstanceCount[frameIndex] = instanceCount;
+    RTObjectInstanceCount[frameIndex] = instanceIndex;
 
     // Update per-frame object buffer SRV in the deferred SRV heap.
     // 更新对象数据 SRV 到延迟堆。
@@ -360,7 +373,7 @@ uint32 FSimpleSceneRenderer::UpdateSWRTGICBAndObjects(
         device->CreateShaderResourceView(RTObjectBuffer[frameIndex].Get(), &srv, cpu);
     }
 
-    return instanceCount;
+    return instanceIndex;
 }
 
 /**
