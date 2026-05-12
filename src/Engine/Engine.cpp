@@ -3289,7 +3289,14 @@ void FEngine::LayoutUI()
 
     const int rightX = leftPanelW + viewportW;
     if (RightPanel)
+    {
         MoveWindow(RightPanel, rightX, contentTop, RightPanelWidthPx, viewportH, TRUE);
+        // The right panel controls are siblings of the D3D viewport. Keeping a
+        // separate STATIC background visible here can cover the outliner/details
+        // controls after large-window relayouts, so the main window background is
+        // used as the panel surface instead.
+        ShowWindow(RightPanel, SW_HIDE);
+    }
     if (OutlinerLabel)
         MoveWindow(OutlinerLabel, rightX + 8, contentTop + 8, RightPanelWidthPx - 16, 18, TRUE);
     const int outlinerH = std::clamp(viewportH / 4, 108, 190);
@@ -3526,8 +3533,6 @@ void FEngine::LayoutUI()
     bringTop(AtmoHeightValueLabel);
     bringTop(AtmoHeightSlider);
     bringTop(SkyLabel);
-    if (RightPanel)
-        SetWindowPos(RightPanel, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     bringTop(OutlinerLabel);
     bringTop(OutlinerList);
     bringTop(DetailsLabel);
