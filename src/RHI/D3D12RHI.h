@@ -165,6 +165,8 @@ private:
     void MoveToNextFrame();
 
 private:
+    bool TryWaitForGPU(uint32 timeoutMs);
+
     HWND Hwnd = nullptr;
     uint32 Width = 0;
     uint32 Height = 0;

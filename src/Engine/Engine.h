@@ -113,10 +113,14 @@ private:
     static constexpr int TopToolbarHeightPx = 40;
 
     HWND EngineNameLabel = nullptr;
+    HWND SidebarToggleBtn = nullptr;
+    HWND SidebarSearchEdit = nullptr;
     HWND SidebarList = nullptr;
     HWND SidebarBasicLabel = nullptr;
     HWND SidebarRenderDocLabel = nullptr;
     static constexpr int SidebarWidthPx = 280;
+    bool bPlaceActorsOpen = true;
+    WNDPROC SidebarSearchOldProc = nullptr;
     WNDPROC SidebarOldProc = nullptr;
     bool SidebarMaybeDrag = false;
     int SidebarDownX = 0;
@@ -161,6 +165,7 @@ private:
     HWND BottomPanel = nullptr;
     static constexpr int BottomPanelHeightPx = 260;
     HWND ContentTitleLabel = nullptr;
+    HWND ContentDrawerToggleBtn = nullptr;
     HWND TextureTitleLabel = nullptr;
     HWND PreviewTitleLabel = nullptr;
     HWND MaterialTitleLabel = nullptr;
@@ -187,7 +192,10 @@ private:
         Levels,
     };
     EContentFilter ContentFilter = EContentFilter::Models;
+    bool bContentDrawerOpen = true;
     std::vector<int> ContentListAssetIndices;
+    std::vector<FSceneObject::EType> PaletteListTypes;
+    std::wstring ActorPaletteFilter;
     WNDPROC MaterialOldProc = nullptr;
     bool MaterialMaybeDrag = false;
     int MaterialDownX = 0;
@@ -302,6 +310,7 @@ private:
      */
     void AddTextureFromFile(const std::wstring& path);
     void InitializeEditorContent();
+    void RefreshActorPalette();
     void RefreshContentBrowser();
     void RefreshOutliner();
     void RefreshDetailsPanel();
@@ -379,6 +388,7 @@ private:
      * @note 阶段：编辑器交互阶段。
      */
     static LRESULT CALLBACK SidebarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK SidebarSearchWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     /**
      * @brief 材质列表窗口过程（拖拽材质到场景）。
      * @param hwnd 材质列表控件句柄。
@@ -436,6 +446,8 @@ private:
     HWND OutlinerLabel = nullptr;
     HWND OutlinerList = nullptr;
     HWND DetailsLabel = nullptr;
+    HWND DetailTransformLabel = nullptr;
+    HWND DetailEnvironmentLabel = nullptr;
     HWND DetailNameLabel = nullptr;
     HWND DetailPositionLabel = nullptr;
     HWND DetailScaleLabel = nullptr;

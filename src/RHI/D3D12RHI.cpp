@@ -283,7 +283,8 @@ void FD3D12RHI::Resize(uint32 width, uint32 height)
     if (width == Width && height == Height) return;
 
     // 等待 GPU 完成后再释放资源。
-    WaitForGPU();
+    if (!TryWaitForGPU(100))
+        return;
 
     for (uint32 i = 0; i < kFrameCount; ++i)
         RenderTargets[i].Reset();
@@ -614,11 +615,22 @@ void FD3D12RHI::EndFrame()
 void FD3D12RHI::WaitForGPU()
 {
     // 通过 fence 信号和事件等待 GPU 完成。
+    (void)TryWaitForGPU(INFINITE);
+}
+
+bool FD3D12RHI::TryWaitForGPU(uint32 timeoutMs)
+{
+    if (!Queue || !Fence || !FenceEvent)
+        return false;
+
     const uint64 fenceToWait = FenceValue[FrameIndex];
     ThrowIfFailed(Queue->Signal(Fence.Get(), fenceToWait), "Queue Signal failed");
     ThrowIfFailed(Fence->SetEventOnCompletion(fenceToWait, FenceEvent), "SetEventOnCompletion failed");
-    WaitForSingleObject(FenceEvent, INFINITE);
+    if (WaitForSingleObject(FenceEvent, timeoutMs) != WAIT_OBJECT_0)
+        return false;
+
     FenceValue[FrameIndex]++;
+    return true;
 }
 
 /**

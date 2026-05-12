@@ -32,6 +32,9 @@ constexpr int IDC_TOOLBAR_IMPORT_OBJ = 5010;
 constexpr int IDC_TOOLBAR_PLACE = 5011;
 constexpr int IDC_CONTENT_FOLDERS = 5012;
 constexpr int IDC_TOOLBAR_SETTINGS = 5013;
+constexpr int IDC_ACTOR_SEARCH = 5014;
+constexpr int IDC_CONTENT_DRAWER_TOGGLE = 5015;
+constexpr int IDC_PLACE_ACTORS_TOGGLE = 5016;
 constexpr int IDC_OUTLINER_LIST = 5101;
 constexpr int IDC_APPLY_DETAILS = 5201;
 
@@ -91,6 +94,13 @@ FSceneObject::EType PaletteTypeFromListIndex(int index)
     case 5: return FSceneObject::EType::RenderDocRock;
     default: return FSceneObject::EType::Sphere;
     }
+}
+
+std::wstring ToLowerCopy(std::wstring text)
+{
+    for (wchar_t& c : text)
+        c = (wchar_t)::towlower(c);
+    return text;
 }
 }
 
@@ -726,7 +736,10 @@ LRESULT CALLBACK FEngine::SidebarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             // 先让 ListBox 更新选中项，再同步 Palette 类型。
             const LRESULT r = CallWindowProcW(engine->SidebarOldProc, hwnd, msg, wParam, lParam);
             const int sel = (int)SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
-            engine->PaletteType = PaletteTypeFromListIndex(sel);
+            if (sel >= 0 && sel < (int)engine->PaletteListTypes.size())
+                engine->PaletteType = engine->PaletteListTypes[(size_t)sel];
+            else
+                engine->PaletteType = PaletteTypeFromListIndex(sel);
             return r;
         }
     case WM_MOUSEMOVE:
@@ -786,6 +799,26 @@ LRESULT CALLBACK FEngine::SidebarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
     }
 
     return CallWindowProcW(engine->SidebarOldProc, hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK FEngine::SidebarSearchWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    auto* engine = reinterpret_cast<FEngine*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!engine || !engine->SidebarSearchOldProc)
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+    const LRESULT result = CallWindowProcW(engine->SidebarSearchOldProc, hwnd, msg, wParam, lParam);
+    if (msg == WM_SETTEXT || msg == WM_CHAR || msg == WM_KEYUP || msg == WM_PASTE || msg == WM_CUT || msg == WM_CLEAR)
+    {
+        wchar_t buf[128]{};
+        GetWindowTextW(hwnd, buf, (int)_countof(buf));
+        if (engine->ActorPaletteFilter != buf)
+        {
+            engine->ActorPaletteFilter = buf;
+            engine->RefreshActorPalette();
+        }
+    }
+    return result;
 }
 
 /**
@@ -1367,7 +1400,18 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         {
             // 侧栏选择改变：切换放置类型。
             const int sel = (int)SendMessageW(SidebarList, LB_GETCURSEL, 0, 0);
-            PaletteType = PaletteTypeFromListIndex(sel);
+            if (sel >= 0 && sel < (int)PaletteListTypes.size())
+                PaletteType = PaletteListTypes[(size_t)sel];
+            else
+                PaletteType = PaletteTypeFromListIndex(sel);
+            return 0;
+        }
+        if ((HWND)lParam == SidebarSearchEdit && HIWORD(wParam) == EN_CHANGE)
+        {
+            wchar_t buf[128]{};
+            GetWindowTextW(SidebarSearchEdit, buf, (int)_countof(buf));
+            ActorPaletteFilter = buf;
+            RefreshActorPalette();
             return 0;
         }
         if (HIWORD(wParam) == LBN_SELCHANGE && (HWND)lParam == ContentFoldersList)
@@ -1408,9 +1452,25 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             PlaceSelectedContentAsset();
             return 0;
         }
-        if (((HWND)lParam == ToolbarSettingsBtn || LOWORD(wParam) == IDC_TOOLBAR_SETTINGS) && HIWORD(wParam) == BN_CLICKED)
+        if ((HWND)lParam == ToolbarSettingsBtn || LOWORD(wParam) == IDC_TOOLBAR_SETTINGS)
         {
             OpenRenderSettingsDialog();
+            return 0;
+        }
+        if ((HWND)lParam == SidebarToggleBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            bPlaceActorsOpen = !bPlaceActorsOpen;
+            if (SidebarToggleBtn)
+                SetWindowTextW(SidebarToggleBtn, bPlaceActorsOpen ? L"<" : L">");
+            LayoutUI();
+            return 0;
+        }
+        if ((HWND)lParam == ContentDrawerToggleBtn && HIWORD(wParam) == BN_CLICKED)
+        {
+            bContentDrawerOpen = !bContentDrawerOpen;
+            if (ContentDrawerToggleBtn)
+                SetWindowTextW(ContentDrawerToggleBtn, bContentDrawerOpen ? L"Collapse" : L"Content");
+            LayoutUI();
             return 0;
         }
         if ((HWND)lParam == NewLevelBtn && HIWORD(wParam) == BN_CLICKED)
@@ -1837,6 +1897,8 @@ void FEngine::RefreshDetailsPanel()
         if (DetailNameEdit) SetWindowTextW(DetailNameEdit, L"");
         showGroup(sunControls, _countof(sunControls), false);
         showGroup(skyControls, _countof(skyControls), false);
+        if (DetailTransformLabel) ShowWindow(DetailTransformLabel, SW_HIDE);
+        if (DetailEnvironmentLabel) ShowWindow(DetailEnvironmentLabel, SW_HIDE);
         LayoutUI();
         return;
     }
@@ -1846,6 +1908,10 @@ void FEngine::RefreshDetailsPanel()
     const bool isSky = object.Type == FSceneObject::EType::SkyAtmosphere;
     showGroup(sunControls, _countof(sunControls), isSun);
     showGroup(skyControls, _countof(skyControls), isSky);
+    if (DetailEnvironmentLabel)
+        ShowWindow(DetailEnvironmentLabel, (isSun || isSky) ? SW_SHOW : SW_HIDE);
+    if (DetailTransformLabel)
+        ShowWindow(DetailTransformLabel, SW_SHOW);
     if (DetailsLabel)
     {
         const std::wstring title = L"Details: " + SceneObjectTypeToString(object.Type);
@@ -1932,7 +1998,8 @@ LRESULT FEngine::ApplyEditorControlColors(HWND control, HDC hdc, UINT msg)
     else if (control == ToolbarPanel || control == ContentTitleLabel || control == TextureTitleLabel ||
              control == PreviewTitleLabel || control == MaterialTitleLabel || control == RenderSettingsLabel ||
              control == RenderGILabel || control == SunSectionLabel || control == AtmosphereSectionLabel ||
-             control == SidebarBasicLabel || control == SidebarRenderDocLabel)
+             control == SidebarBasicLabel || control == SidebarRenderDocLabel ||
+             control == DetailTransformLabel || control == DetailEnvironmentLabel)
     {
         bg = kEditorHeader;
         brush = UIHeaderBrush;
@@ -2013,6 +2080,55 @@ HWND FEngine::CreateEditorList(HWND parent, int id)
     return h;
 }
 
+void FEngine::RefreshActorPalette()
+{
+    if (!SidebarList)
+        return;
+
+    struct FPaletteEntry
+    {
+        const wchar_t* Group;
+        const wchar_t* Name;
+        FSceneObject::EType Type;
+    };
+    static constexpr FPaletteEntry entries[] = {
+        { L"Basic", L"Sphere", FSceneObject::EType::Sphere },
+        { L"Basic", L"Box", FSceneObject::EType::Box },
+        { L"Basic", L"Cone", FSceneObject::EType::Cone },
+        { L"Environment", L"Sun Light", FSceneObject::EType::SunLight },
+        { L"Environment", L"Sky Atmosphere", FSceneObject::EType::SkyAtmosphere },
+        { L"RenderDoc", L"Rock", FSceneObject::EType::RenderDocRock },
+    };
+
+    const std::wstring filter = ToLowerCopy(ActorPaletteFilter);
+    PaletteListTypes.clear();
+    SendMessageW(SidebarList, LB_RESETCONTENT, 0, 0);
+
+    int selectIndex = -1;
+    for (const FPaletteEntry& entry : entries)
+    {
+        const std::wstring label = std::wstring(entry.Group) + L"    " + entry.Name;
+        const std::wstring searchable = ToLowerCopy(std::wstring(entry.Group) + L" " + entry.Name);
+        if (!filter.empty() && searchable.find(filter) == std::wstring::npos)
+            continue;
+
+        if (entry.Type == PaletteType)
+            selectIndex = (int)PaletteListTypes.size();
+        PaletteListTypes.push_back(entry.Type);
+        SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)label.c_str());
+    }
+
+    if (!PaletteListTypes.empty())
+    {
+        if (selectIndex < 0)
+        {
+            selectIndex = 0;
+            PaletteType = PaletteListTypes[0];
+        }
+        SendMessageW(SidebarList, LB_SETCURSEL, (WPARAM)selectIndex, 0);
+    }
+}
+
 void FEngine::SelectContentFilter(EContentFilter filter)
 {
     ContentFilter = filter;
@@ -2053,6 +2169,7 @@ std::wstring FEngine::ContentFilterDisplayName(EContentFilter filter) const
 DirectX::XMFLOAT3 FEngine::DirectionToSunPosition(float yaw, float pitch, float distance)
 {
     using namespace DirectX;
+
     const float cy = ::cosf(yaw);
     const float sy = ::sinf(yaw);
     const float cp = ::cosf(pitch);
@@ -2948,6 +3065,7 @@ void FEngine::OpenRenderSettingsDialog()
     }
     if (!RenderSettingsHwnd)
         return;
+    SetWindowTextW(RenderSettingsHwnd, L"Render Settings");
 
     HWND controls[] = {
         RenderSettingsLabel, RenderPathLabel, RenderPathCombo, RenderGILabel,
@@ -3038,8 +3156,10 @@ void FEngine::LayoutUI()
     GetClientRect(Window.GetHwnd(), &rc);
     const int clientW = (int)(rc.right - rc.left);
     const int clientH = (int)(rc.bottom - rc.top);
-    const int bottomPanelH = (clientH < 850) ? 160 : BottomPanelHeightPx;
-    const int viewportW = std::max(1, clientW - SidebarWidthPx - RightPanelWidthPx);
+    const int bottomPanelH = bContentDrawerOpen ? ((clientH < 850) ? 160 : BottomPanelHeightPx) : 38;
+    const int collapsedSidebarW = 42;
+    const int leftPanelW = bPlaceActorsOpen ? SidebarWidthPx : collapsedSidebarW;
+    const int viewportW = std::max(1, clientW - leftPanelW - RightPanelWidthPx);
     const int viewportH = std::max(1, clientH - TopToolbarHeightPx - bottomPanelH);
 
     // 顶部标题与物体列表区域。
@@ -3067,7 +3187,7 @@ void FEngine::LayoutUI()
 
     const int sidePad = 10;
     const int innerX = sidePad;
-    const int innerW = SidebarWidthPx - sidePad * 2;
+    const int innerW = std::max(1, leftPanelW - sidePad * 2);
     const int headerH = 20;
     const int rowH = 24;
     int sy = 8;
@@ -3089,14 +3209,36 @@ void FEngine::LayoutUI()
             MoveWindow(slider, innerX + labelW, contentTop + y, sliderW, 24, TRUE);
     };
 
-    placeSide(EngineNameLabel, sy, innerW, headerH);
+    if (EngineNameLabel)
+    {
+        SetWindowTextW(EngineNameLabel, bPlaceActorsOpen ? L"Place Actors" : L"");
+        placeSide(EngineNameLabel, sy, bPlaceActorsOpen ? std::max(1, innerW - 36) : 1, headerH);
+    }
+    if (SidebarToggleBtn)
+    {
+        SetWindowTextW(SidebarToggleBtn, bPlaceActorsOpen ? L"<" : L">");
+        const int toggleX = bPlaceActorsOpen ? std::max(8, leftPanelW - sidePad - 28) : 8;
+        MoveWindow(SidebarToggleBtn, toggleX, contentTop + sy - 1, 28, 22, TRUE);
+        ShowWindow(SidebarToggleBtn, SW_SHOW);
+    }
     sy += headerH + 6;
-    placeSide(SidebarBasicLabel, sy, innerW, 18);
-    sy += 20;
-    placeSide(SidebarList, sy, innerW, 156);
+
+    HWND sidebarBody[] = { SidebarSearchEdit, SidebarBasicLabel, SidebarList };
+    for (HWND h : sidebarBody)
+        if (h) ShowWindow(h, bPlaceActorsOpen ? SW_SHOW : SW_HIDE);
+    if (SidebarRenderDocLabel)
+        ShowWindow(SidebarRenderDocLabel, SW_HIDE);
+    if (bPlaceActorsOpen)
+    {
+        placeSide(SidebarSearchEdit, sy, innerW, 22);
+        sy += 28;
+        placeSide(SidebarBasicLabel, sy, innerW, 18);
+        sy += 20;
+        placeSide(SidebarList, sy, innerW, std::max(156, viewportH - sy - 12));
+    }
 
     // Sidebar controls live below the palette list (in main window coordinates).
-    if (!RenderSettingsHwnd)
+    if (!RenderSettingsHwnd && bPlaceActorsOpen)
     {
     const int baseY = sy + 86;
 
@@ -3143,40 +3285,43 @@ void FEngine::LayoutUI()
 
     // 视口与底部面板布局。
     if (ViewportHwnd)
-        MoveWindow(ViewportHwnd, SidebarWidthPx, contentTop, viewportW, viewportH, TRUE);
+        MoveWindow(ViewportHwnd, leftPanelW, contentTop, viewportW, viewportH, TRUE);
 
-    const int rightX = SidebarWidthPx + viewportW;
+    const int rightX = leftPanelW + viewportW;
     if (RightPanel)
         MoveWindow(RightPanel, rightX, contentTop, RightPanelWidthPx, viewportH, TRUE);
     if (OutlinerLabel)
         MoveWindow(OutlinerLabel, rightX + 8, contentTop + 8, RightPanelWidthPx - 16, 18, TRUE);
+    const int outlinerH = std::clamp(viewportH / 4, 108, 190);
     if (OutlinerList)
-        MoveWindow(OutlinerList, rightX + 8, contentTop + 30, RightPanelWidthPx - 16, std::max(80, viewportH / 2 - 44), TRUE);
-    const int detailsY = std::max(120, viewportH / 2 + 4);
+        MoveWindow(OutlinerList, rightX + 8, contentTop + 30, RightPanelWidthPx - 16, outlinerH, TRUE);
+    const int detailsY = 30 + outlinerH + 12;
     if (DetailsLabel)
         MoveWindow(DetailsLabel, rightX + 8, contentTop + detailsY, RightPanelWidthPx - 16, 18, TRUE);
     if (DetailNameLabel)
         MoveWindow(DetailNameLabel, rightX + 8, contentTop + detailsY + 24, RightPanelWidthPx - 16, 16, TRUE);
     if (DetailNameEdit)
         MoveWindow(DetailNameEdit, rightX + 8, contentTop + detailsY + 42, RightPanelWidthPx - 16, 22, TRUE);
+    if (DetailTransformLabel)
+        MoveWindow(DetailTransformLabel, rightX + 8, contentTop + detailsY + 70, RightPanelWidthPx - 16, 18, TRUE);
     if (DetailPositionLabel)
-        MoveWindow(DetailPositionLabel, rightX + 8, contentTop + detailsY + 70, RightPanelWidthPx - 16, 16, TRUE);
+        MoveWindow(DetailPositionLabel, rightX + 8, contentTop + detailsY + 94, RightPanelWidthPx - 16, 16, TRUE);
     const int editW = (RightPanelWidthPx - 32) / 3;
     if (DetailPosXEdit)
-        MoveWindow(DetailPosXEdit, rightX + 8, contentTop + detailsY + 88, editW, 22, TRUE);
+        MoveWindow(DetailPosXEdit, rightX + 8, contentTop + detailsY + 112, editW, 22, TRUE);
     if (DetailPosYEdit)
-        MoveWindow(DetailPosYEdit, rightX + 12 + editW, contentTop + detailsY + 88, editW, 22, TRUE);
+        MoveWindow(DetailPosYEdit, rightX + 12 + editW, contentTop + detailsY + 112, editW, 22, TRUE);
     if (DetailPosZEdit)
-        MoveWindow(DetailPosZEdit, rightX + 16 + editW * 2, contentTop + detailsY + 88, editW, 22, TRUE);
+        MoveWindow(DetailPosZEdit, rightX + 16 + editW * 2, contentTop + detailsY + 112, editW, 22, TRUE);
     if (DetailScaleLabel)
-        MoveWindow(DetailScaleLabel, rightX + 8, contentTop + detailsY + 116, RightPanelWidthPx - 16, 16, TRUE);
+        MoveWindow(DetailScaleLabel, rightX + 8, contentTop + detailsY + 138, RightPanelWidthPx - 16, 16, TRUE);
     if (DetailScaleXEdit)
-        MoveWindow(DetailScaleXEdit, rightX + 8, contentTop + detailsY + 134, editW, 22, TRUE);
+        MoveWindow(DetailScaleXEdit, rightX + 8, contentTop + detailsY + 156, editW, 22, TRUE);
     if (DetailScaleYEdit)
-        MoveWindow(DetailScaleYEdit, rightX + 12 + editW, contentTop + detailsY + 134, editW, 22, TRUE);
+        MoveWindow(DetailScaleYEdit, rightX + 12 + editW, contentTop + detailsY + 156, editW, 22, TRUE);
     if (DetailScaleZEdit)
-        MoveWindow(DetailScaleZEdit, rightX + 16 + editW * 2, contentTop + detailsY + 134, editW, 22, TRUE);
-    int applyY = detailsY + 166;
+        MoveWindow(DetailScaleZEdit, rightX + 16 + editW * 2, contentTop + detailsY + 156, editW, 22, TRUE);
+    int applyY = detailsY + 186;
     const int fullW = RightPanelWidthPx - 16;
     const int fieldX = rightX + 8;
     const int extraW = fullW;
@@ -3184,6 +3329,9 @@ void FEngine::LayoutUI()
     const bool showSkyDetails = SelectedIndex >= 0 && SelectedIndex < (int)Objects.size() && Objects[(size_t)SelectedIndex].Type == FSceneObject::EType::SkyAtmosphere;
     if (showSunDetails)
     {
+        if (DetailEnvironmentLabel)
+            MoveWindow(DetailEnvironmentLabel, fieldX, contentTop + applyY, extraW, 18, TRUE);
+        applyY += 24;
         if (DetailIntensityLabel)
             MoveWindow(DetailIntensityLabel, fieldX, contentTop + applyY, extraW, 16, TRUE);
         if (DetailIntensityEdit)
@@ -3192,21 +3340,28 @@ void FEngine::LayoutUI()
     }
     if (showSkyDetails)
     {
+        if (DetailEnvironmentLabel)
+            MoveWindow(DetailEnvironmentLabel, fieldX, contentTop + applyY, extraW, 18, TRUE);
+        applyY += 24;
         if (DetailSkyEnabledCheckbox)
             MoveWindow(DetailSkyEnabledCheckbox, fieldX, contentTop + applyY, extraW, 22, TRUE);
         applyY += 28;
-        auto placeDetailRow = [&](HWND label, HWND edit)
+        const int colGap = 8;
+        const int colW = (extraW - colGap) / 2;
+        auto placeDetailGridRow = [&](HWND leftLabel, HWND leftEdit, HWND rightLabel, HWND rightEdit)
         {
-            if (label)
-                MoveWindow(label, fieldX, contentTop + applyY, extraW, 16, TRUE);
-            if (edit)
-                MoveWindow(edit, fieldX, contentTop + applyY + 18, extraW, 22, TRUE);
+            if (leftLabel)
+                MoveWindow(leftLabel, fieldX, contentTop + applyY, colW, 16, TRUE);
+            if (rightLabel)
+                MoveWindow(rightLabel, fieldX + colW + colGap, contentTop + applyY, colW, 16, TRUE);
+            if (leftEdit)
+                MoveWindow(leftEdit, fieldX, contentTop + applyY + 18, colW, 22, TRUE);
+            if (rightEdit)
+                MoveWindow(rightEdit, fieldX + colW + colGap, contentTop + applyY + 18, colW, 22, TRUE);
             applyY += 46;
         };
-        placeDetailRow(DetailRayleighLabel, DetailRayleighEdit);
-        placeDetailRow(DetailMieLabel, DetailMieEdit);
-        placeDetailRow(DetailMieGLabel, DetailMieGEdit);
-        placeDetailRow(DetailAtmosphereHeightLabel, DetailAtmosphereHeightEdit);
+        placeDetailGridRow(DetailRayleighLabel, DetailRayleighEdit, DetailMieLabel, DetailMieEdit);
+        placeDetailGridRow(DetailMieGLabel, DetailMieGEdit, DetailAtmosphereHeightLabel, DetailAtmosphereHeightEdit);
     }
     if (ApplyDetailsBtn)
         MoveWindow(ApplyDetailsBtn, rightX + 8, contentTop + applyY, RightPanelWidthPx - 16, 24, TRUE);
@@ -3232,10 +3387,35 @@ void FEngine::LayoutUI()
         const int previewX = assetsX + assetsW + gap;
 
         if (ContentTitleLabel)
-            MoveWindow(ContentTitleLabel, padding, 8, 170, 22, TRUE);
+            MoveWindow(ContentTitleLabel, padding, 8, 148, 22, TRUE);
+        if (ContentDrawerToggleBtn)
+        {
+            SetWindowTextW(ContentDrawerToggleBtn, bContentDrawerOpen ? L"Collapse" : L"Content");
+            MoveWindow(ContentDrawerToggleBtn, padding + 156, 7, 86, buttonH, TRUE);
+        }
+
+        HWND contentDrawerBody[] = {
+            TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel,
+            ContentActionsLabel, ContentFoldersList, ContentHintLabel, ContentList,
+            ImportObjBtn, PlaceAssetBtn, NewLevelBtn, OpenLevelBtn, SaveLevelBtn,
+            TextureList, MaterialList, TexturePreview, NewMaterialBtn
+        };
+        for (HWND h : contentDrawerBody)
+            if (h) ShowWindow(h, bContentDrawerOpen ? SW_SHOW : SW_HIDE);
+        if (TonemapCheckbox && GetParent(TonemapCheckbox) == BottomPanel)
+            ShowWindow(TonemapCheckbox, SW_HIDE);
+
+        if (!bContentDrawerOpen)
+        {
+            if (ContentPathLabel)
+                MoveWindow(ContentPathLabel, padding + 252, 10, std::max(80, clientW - padding - 252), 18, TRUE);
+        }
+        else
+        {
+
         const int actionsW = 58 + 58 + 74 + 112 + 72 + 104 + 6 * 5;
         const int actionLeft = clientW - padding - actionsW;
-        const int pathX = padding + 176;
+        const int pathX = padding + 252;
         const int pathW = std::max(80, actionLeft - pathX - 10);
         if (ContentPathLabel)
             MoveWindow(ContentPathLabel, pathX, 10, pathW, 18, TRUE);
@@ -3280,11 +3460,12 @@ void FEngine::LayoutUI()
             MoveWindow(TextureList, previewX, loadedY, previewW / 2 - 4, loadedH, TRUE);
         if (MaterialList)
             MoveWindow(MaterialList, previewX + previewW / 2 + 4, loadedY, previewW / 2 - 4, loadedH, TRUE);
+        }
     }
 
     // 同步 RHI 尺寸。
-    if (ViewportHwnd && RHI.GetDevice())
-        RHI.Resize((uint32)viewportW, (uint32)viewportH);
+    // Do not synchronously resize the D3D12 swapchain from Win32 UI handlers.
+    // Some editor-only layout actions can otherwise block the message pump in DXGI.
 
     // Ensure Win32 panels are visible above the swapchain host window.
     // (Flip-model swapchains are sensitive to z-order / overlapping child windows.)
@@ -3309,6 +3490,8 @@ void FEngine::LayoutUI()
     bringTop(StatusLabel);
     bringTop(SidebarList);
     bringTop(EngineNameLabel);
+    bringTop(SidebarToggleBtn);
+    bringTop(SidebarSearchEdit);
     bringTop(SidebarBasicLabel);
     bringTop(SidebarRenderDocLabel);
     bringTop(RenderSettingsLabel);
@@ -3347,6 +3530,8 @@ void FEngine::LayoutUI()
     bringTop(OutlinerLabel);
     bringTop(OutlinerList);
     bringTop(DetailsLabel);
+    bringTop(DetailTransformLabel);
+    bringTop(DetailEnvironmentLabel);
     bringTop(DetailNameLabel);
     bringTop(DetailPositionLabel);
     bringTop(DetailScaleLabel);
@@ -3371,6 +3556,7 @@ void FEngine::LayoutUI()
     bringTop(ApplyDetailsBtn);
     bringTop(BottomPanel);
     bringTop(ContentTitleLabel);
+    bringTop(ContentDrawerToggleBtn);
     bringTop(TextureTitleLabel);
     bringTop(PreviewTitleLabel);
     bringTop(MaterialTitleLabel);
@@ -3470,6 +3656,16 @@ void FEngine::UpdateSkyUI()
 void FEngine::Tick(float dtSeconds)
 {
     using namespace DirectX;
+    if (SidebarSearchEdit)
+    {
+        wchar_t buf[128]{};
+        GetWindowTextW(SidebarSearchEdit, buf, (int)_countof(buf));
+        if (ActorPaletteFilter != buf)
+        {
+            ActorPaletteFilter = buf;
+            RefreshActorPalette();
+        }
+    }
 
     // 侧栏长按：无移动也允许拖拽放置。
     // 侧栏长按：即使没有鼠标移动也触发拖拽放置。
@@ -3864,9 +4060,27 @@ void FEngine::Run(HINSTANCE hInstance)
         GetModuleHandleW(nullptr),
         nullptr);
     ApplyEditorFont(EngineNameLabel, true);
+    SidebarToggleBtn = CreateEditorButton(L"<", Window.GetHwnd(), IDC_PLACE_ACTORS_TOGGLE);
     SidebarBasicLabel = CreateEditorLabel(L"Actor Palette", Window.GetHwnd(), true);
     SidebarRenderDocLabel = CreateEditorLabel(L"RenderDoc Captures", Window.GetHwnd(), true);
     ShowWindow(SidebarRenderDocLabel, SW_HIDE);
+    SidebarSearchEdit = CreateWindowExW(
+        0,
+        L"EDIT",
+        nullptr,
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+        0,
+        0,
+        SidebarWidthPx,
+        22,
+        Window.GetHwnd(),
+        MenuHandle(IDC_ACTOR_SEARCH),
+        GetModuleHandleW(nullptr),
+        nullptr);
+    ApplyEditorFont(SidebarSearchEdit);
+    SendMessageW(SidebarSearchEdit, EM_SETCUEBANNER, TRUE, (LPARAM)L"Search actors");
+    SetWindowLongPtrW(SidebarSearchEdit, GWLP_USERDATA, (LONG_PTR)this);
+    SidebarSearchOldProc = (WNDPROC)SetWindowLongPtrW(SidebarSearchEdit, GWLP_WNDPROC, (LONG_PTR)&FEngine::SidebarSearchWndProc);
 
     SidebarList = CreateWindowExW(
         0,
@@ -3882,13 +4096,7 @@ void FEngine::Run(HINSTANCE hInstance)
         GetModuleHandleW(nullptr),
         nullptr);
     ApplyEditorFont(SidebarList);
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Basic    Sphere");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Basic    Box");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Basic    Cone");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Environment    Sun Light");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"Environment    Sky Atmosphere");
-    SendMessageW(SidebarList, LB_ADDSTRING, 0, (LPARAM)L"RenderDoc    Rock");
-    SendMessageW(SidebarList, LB_SETCURSEL, 0, 0);
+    RefreshActorPalette();
 
     // Subclass sidebar to support drag-to-place
     SetWindowLongPtrW(SidebarList, GWLP_USERDATA, (LONG_PTR)this);
@@ -4091,6 +4299,8 @@ void FEngine::Run(HINSTANCE hInstance)
         OutlinerLabel = CreateWindowExW(0, L"STATIC", L"Level Outliner", WS_CHILD | WS_VISIBLE, rightX + 8, 8, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         OutlinerList = CreateWindowExW(0, L"LISTBOX", nullptr, WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_NOINTEGRALHEIGHT, rightX + 8, 30, RightPanelWidthPx - 16, 220, Window.GetHwnd(), MenuHandle(IDC_OUTLINER_LIST), GetModuleHandleW(nullptr), nullptr);
         DetailsLabel = CreateWindowExW(0, L"STATIC", L"Details", WS_CHILD | WS_VISIBLE, rightX + 8, 270, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailTransformLabel = CreateWindowExW(0, L"STATIC", L"Transform", WS_CHILD | WS_VISIBLE, rightX + 8, 320, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+        DetailEnvironmentLabel = CreateWindowExW(0, L"STATIC", L"Environment", WS_CHILD | WS_VISIBLE, rightX + 8, 382, RightPanelWidthPx - 16, 18, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailNameLabel = CreateWindowExW(0, L"STATIC", L"Name", WS_CHILD | WS_VISIBLE, rightX + 8, 294, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailNameEdit = CreateWindowExW(0, L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, rightX + 8, 294, RightPanelWidthPx - 16, 22, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
         DetailPositionLabel = CreateWindowExW(0, L"STATIC", L"Location  X / Y / Z", WS_CHILD | WS_VISIBLE, rightX + 8, 320, RightPanelWidthPx - 16, 16, Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -4116,6 +4326,8 @@ void FEngine::Run(HINSTANCE hInstance)
         ApplyEditorFont(OutlinerLabel, true);
         ApplyEditorFont(OutlinerList);
         ApplyEditorFont(DetailsLabel, true);
+        ApplyEditorFont(DetailTransformLabel, true);
+        ApplyEditorFont(DetailEnvironmentLabel, true);
         ApplyEditorFont(DetailNameLabel);
         ApplyEditorFont(DetailPositionLabel);
         ApplyEditorFont(DetailScaleLabel);
@@ -4159,6 +4371,7 @@ void FEngine::Run(HINSTANCE hInstance)
         const int listH = BottomPanelHeightPx - padding * 2 - 26;
 
         ContentTitleLabel = CreateWindowExW(0, L"STATIC", L"Content Drawer", WS_CHILD | WS_VISIBLE, padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
+        ContentDrawerToggleBtn = CreateWindowExW(0, L"BUTTON", L"Collapse", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, padding, padding, 78, 22, BottomPanel, MenuHandle(IDC_CONTENT_DRAWER_TOGGLE), GetModuleHandleW(nullptr), nullptr);
         TextureTitleLabel = CreateWindowExW(0, L"STATIC", L"Folders", WS_CHILD | WS_VISIBLE, padding + colW + padding, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
         PreviewTitleLabel = CreateWindowExW(0, L"STATIC", L"Inspector", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 2, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
         MaterialTitleLabel = CreateWindowExW(0, L"STATIC", L"Assets", WS_CHILD | WS_VISIBLE, padding + (colW + padding) * 3, padding, colW, 18, BottomPanel, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -4248,7 +4461,7 @@ void FEngine::Run(HINSTANCE hInstance)
             BottomPanel, MenuHandle(IDC_SAVE_LEVEL), GetModuleHandleW(nullptr), nullptr);
 
         HWND fontTargets[] = {
-            ContentTitleLabel, TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel, ContentPathLabel, ContentActionsLabel, ContentHintLabel,
+            ContentTitleLabel, ContentDrawerToggleBtn, TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel, ContentPathLabel, ContentActionsLabel, ContentHintLabel,
             ContentFoldersList, ContentList, ImportObjBtn, PlaceAssetBtn, TextureList, TexturePreview, MaterialList,
             NewMaterialBtn, TonemapCheckbox, NewLevelBtn, OpenLevelBtn, SaveLevelBtn
         };
