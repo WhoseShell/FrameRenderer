@@ -821,6 +821,19 @@ LRESULT CALLBACK FEngine::SidebarSearchWndProc(HWND hwnd, UINT msg, WPARAM wPara
     return result;
 }
 
+void FEngine::SyncViewportBackbufferSize()
+{
+    if (!ViewportHwnd || !RHI.GetDevice())
+        return;
+
+    RECT rc{};
+    GetClientRect(ViewportHwnd, &rc);
+    const uint32 width = (uint32)std::max(1L, rc.right - rc.left);
+    const uint32 height = (uint32)std::max(1L, rc.bottom - rc.top);
+    if (width != RHI.GetWidth() || height != RHI.GetHeight())
+        RHI.Resize(width, height);
+}
+
 /**
  * @brief 材质列表控件过程，处理拖拽赋材质。
  * @param hwnd 材质列表句柄。
@@ -3557,7 +3570,9 @@ void FEngine::LayoutUI()
 
     // 视口与底部面板布局。
     if (ViewportHwnd)
+    {
         MoveWindow(ViewportHwnd, leftPanelW, contentTop, viewportW, viewportH, TRUE);
+    }
 
     const int rightX = leftPanelW + viewportW;
     if (RightPanel)
@@ -3934,6 +3949,8 @@ void FEngine::UpdateSkyUI()
 void FEngine::Tick(float dtSeconds)
 {
     using namespace DirectX;
+    SyncViewportBackbufferSize();
+
     if (SidebarSearchEdit)
     {
         wchar_t buf[128]{};

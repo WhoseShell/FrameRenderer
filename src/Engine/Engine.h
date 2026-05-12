@@ -62,6 +62,7 @@ private:
      * @note 阶段：窗口尺寸变化/初始化阶段。
      */
     void LayoutUI();
+    void SyncViewportBackbufferSize();
     /**
      * @brief 刷新天空参数在 UI 上的显示。
      * @param 无。
