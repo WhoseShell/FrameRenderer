@@ -17,7 +17,9 @@ cbuffer SceneCB : register(b0)
     float  g_useRoughnessTex;
     float  g_useMetallicTex;
     float  g_useAOTex;
-    float3 _pad2;
+    float  g_shadingMode;
+    float  g_unlitIntensity;
+    float2 _pad2;
 };
 
 cbuffer ShadowCB : register(b1)
@@ -75,6 +77,7 @@ PSIn VSMain(VSIn i)
     return o;
 }
 
+#include "material_common.hlsl"
 #include "pbr_common.hlsl"
 #include "shadow_common.hlsl"
 
@@ -86,11 +89,12 @@ PSIn VSMain(VSIn i)
  */
 float4 PSMain(PSIn i) : SV_Target
 {
-    float3 N = normalize(i.nrmW);
+    FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv);
+    float3 N = material.Normal;
     float3 V = normalize(g_cameraPosWs - i.posW);
 
     // Normal map (tangent basis approximated from world up)
-    if (g_useNormalTex > 0.5)
+    if (false)
     {
         // 根据法线贴图修正法线。
         float3 nm = g_normalTex.Sample(g_samp, i.uv).xyz * 2.0 - 1.0;
@@ -104,16 +108,16 @@ float4 PSMain(PSIn i) : SV_Target
     float3 L = normalize(-g_lightDirWs); // to-light
     float3 radiance = g_lightColor * g_lightIntensity;
 
-    float3 albedoTex = g_albedoTex.Sample(g_samp, i.uv).rgb;
-    float3 albedo = g_albedo * lerp(float3(1.0, 1.0, 1.0), albedoTex, g_useAlbedoTex);
+    float3 albedo = material.Albedo;
 
-    float roughTex = g_roughnessTex.Sample(g_samp, i.uv).r;
-    float metalTex = g_metallicTex.Sample(g_samp, i.uv).r;
-    float aoTex = g_aoTex.Sample(g_samp, i.uv).r;
+    float metallic = material.Metallic;
+    float roughness = material.Roughness;
+    float ao = material.AO;
 
-    float metallic = saturate(lerp(g_metallic, metalTex, g_useMetallicTex));
-    float roughness = saturate(lerp(g_roughness, roughTex, g_useRoughnessTex));
-    float ao = saturate(lerp(1.0, aoTex, g_useAOTex));
+    if (material.IsUnlit > 0.5)
+    {
+        return float4(material.UnlitColor, 1.0);
+    }
 
     // 直接光照 + 阴影。
     float shadow = ComputeShadowFactor(i.posW);

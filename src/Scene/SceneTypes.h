@@ -6,6 +6,12 @@
 
 #include <string>
 
+enum class EMaterialShadingMode : uint32
+{
+    PbrLit = 0,
+    Unlit = 1,
+};
+
 struct FSceneObject
 {
     enum class EType : uint8
@@ -35,6 +41,8 @@ struct FSceneObject
     float Roughness = 0.35f;
     int MaterialIndex = -1;
     int MaterialSRVBase = 0; // renderer descriptor table base (5 SRVs)
+    EMaterialShadingMode MaterialShadingMode = EMaterialShadingMode::PbrLit;
+    float UnlitIntensity = 1.0f;
 
     float UseAlbedoTex = 0.0f;
     float UseNormalTex = 0.0f;

@@ -1,18 +1,18 @@
 {
   "type": "Material",
+  "version": 2,
   "name": "rdc_scene_color_0_0_0_8_0_0",
-  "albedo": [
-    0.04,
-    0.7984127104282379,
-    0.04
-  ],
-  "metallic": 0.0,
-  "roughness": 0.72,
+  "shadingMode": "PbrLit",
+  "params": {
+    "BaseColor": [0.040000, 0.798413, 0.040000],
+    "Metallic": 0.000000,
+    "Roughness": 0.720000
+  },
   "textures": {
-    "albedo": "",
-    "normal": "",
-    "roughness": "",
-    "metallic": "",
-    "ao": ""
+    "BaseColor": "",
+    "Normal": "",
+    "Roughness": "",
+    "Metallic": "",
+    "AO": ""
   }
 }

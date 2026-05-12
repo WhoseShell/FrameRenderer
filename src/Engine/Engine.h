@@ -228,9 +228,11 @@ private:
     {
         std::wstring Name;
         std::wstring AssetPath;
+        EMaterialShadingMode ShadingMode = EMaterialShadingMode::PbrLit;
         DirectX::XMFLOAT3 Albedo{ 0.8f, 0.8f, 0.8f };
         float Metallic = 0.0f;
         float Roughness = 0.5f;
+        float UnlitIntensity = 1.0f;
         int AlbedoTexIndex = -1;
         int NormalTexIndex = -1;
         int RoughnessTexIndex = -1;
@@ -354,8 +356,11 @@ private:
     int FindTextureByRelativePath(const std::wstring& relativePath) const;
     int FindMaterialByAssetPath(const std::wstring& relativePath) const;
     void LoadContentMaterials();
+    void MigrateContentMaterialsToV2();
     void SaveMaterialAsset(int materialIndex);
     void ApplyMaterialToObject(int objectIndex, int materialIndex);
+    void UpdateMaterialRuntimeBindings(FMaterialAsset& mat);
+    void ApplyMaterialAssetToSceneObject(FSceneObject& object, int materialIndex) const;
     FSceneObject MakeSceneObject(FSceneObject::EType type, const DirectX::XMFLOAT3& position, const std::wstring& assetPath = L"");
     editor::FLevelFile BuildLevelFile() const;
     void ApplyLevelFile(const editor::FLevelFile& level, const std::filesystem::path& path);

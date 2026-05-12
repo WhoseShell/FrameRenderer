@@ -183,7 +183,9 @@ private:
         float UseRoughnessTex = 0.0f;
         float UseMetallicTex = 0.0f;
         float UseAOTex = 0.0f;
-        DirectX::XMFLOAT3 _pad2{};
+        float ShadingMode = 0.0f;
+        float UnlitIntensity = 1.0f;
+        DirectX::XMFLOAT2 _pad2{};
     };
 
     static uint32 Align256(uint32 size);

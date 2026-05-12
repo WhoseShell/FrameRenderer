@@ -20,7 +20,9 @@ cbuffer SceneCB : register(b0)
     float  g_useRoughnessTex;
     float  g_useMetallicTex;
     float  g_useAOTex;
-    float3 _pad2;
+    float  g_shadingMode;
+    float  g_unlitIntensity;
+    float2 _pad2;
 };
 
 Texture2D g_albedoTex : register(t0);
@@ -46,6 +48,8 @@ struct GBufferOut
     float4 RT2 : SV_Target2; // posW.xyz + ao.a
 };
 
+#include "material_common.hlsl"
+
 /**
  * @brief GBuffer 像素着色器：输出材质与几何信息。
  * @param i 插值后的像素输入。
@@ -54,10 +58,11 @@ struct GBufferOut
  */
 GBufferOut PSGBuffer(PSIn i)
 {
-    float3 N = normalize(i.nrmW);
+    FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv);
+    float3 N = material.Normal;
 
     // Normal map (tangent basis approximated from world up)
-    if (g_useNormalTex > 0.5)
+    if (false)
     {
         // 根据法线贴图修正法线。
         float3 nm = g_normalTex.Sample(g_samp, i.uv).xyz * 2.0 - 1.0;
@@ -67,18 +72,20 @@ GBufferOut PSGBuffer(PSIn i)
         N = normalize(T * nm.x + B * nm.y + N * nm.z);
     }
 
-    float3 albedoTex = g_albedoTex.Sample(g_samp, i.uv).rgb;
-    float3 albedo = g_albedo * lerp(float3(1.0, 1.0, 1.0), albedoTex, g_useAlbedoTex);
+    float3 albedo = material.Albedo;
 
-    float roughTex = g_roughnessTex.Sample(g_samp, i.uv).r;
-    float metalTex = g_metallicTex.Sample(g_samp, i.uv).r;
-    float aoTex = g_aoTex.Sample(g_samp, i.uv).r;
-
-    float metallic = saturate(lerp(g_metallic, metalTex, g_useMetallicTex));
-    float roughness = saturate(lerp(g_roughness, roughTex, g_useRoughnessTex));
-    float ao = saturate(lerp(1.0, aoTex, g_useAOTex));
+    float metallic = material.Metallic;
+    float roughness = material.Roughness;
+    float ao = material.AO;
 
     GBufferOut o;
+    if (material.IsUnlit > 0.5)
+    {
+        o.RT0 = float4(material.UnlitColor, -1.0);
+        o.RT1 = float4(N, 1.0);
+        o.RT2 = float4(i.posW, ao);
+        return o;
+    }
     // 打包 GBuffer 输出。
     o.RT0 = float4(albedo, metallic);
     o.RT1 = float4(N, roughness + 1.0);
@@ -154,6 +161,8 @@ float4 PSDeferredLighting(VSFullOut i) : SV_Target
     const float valid = gb1.a;
     if (valid <= 0.0)
         return float4(0.0, 0.0, 0.0, 0.0); // alpha=0 keeps sky/background
+    if (gb0.a < 0.0)
+        return float4(max(gb0.rgb, float3(0.0, 0.0, 0.0)), 1.0);
     const float roughness = saturate(valid - 1.0);
 
     const float3 albedo = gb0.rgb;

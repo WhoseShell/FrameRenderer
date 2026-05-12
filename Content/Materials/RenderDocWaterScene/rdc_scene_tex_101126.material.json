@@ -1,18 +1,18 @@
 {
   "type": "Material",
+  "version": 2,
   "name": "rdc_scene_tex_101126",
-  "albedo": [
-    1.0,
-    1.0,
-    1.0
-  ],
-  "metallic": 0.0,
-  "roughness": 0.72,
+  "shadingMode": "PbrLit",
+  "params": {
+    "BaseColor": [1.000000, 1.000000, 1.000000],
+    "Metallic": 0.000000,
+    "Roughness": 0.720000
+  },
   "textures": {
-    "albedo": "Textures/RenderDocWaterScene/rdc_scene_tex_101126_albedo.png",
-    "normal": "",
-    "roughness": "",
-    "metallic": "",
-    "ao": ""
+    "BaseColor": "Textures/RenderDocWaterScene/rdc_scene_tex_101126_albedo.png",
+    "Normal": "",
+    "Roughness": "",
+    "Metallic": "",
+    "AO": ""
   }
 }

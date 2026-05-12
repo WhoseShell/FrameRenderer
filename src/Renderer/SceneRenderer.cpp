@@ -100,6 +100,8 @@ void FSceneRenderer::Render()
             cb.UseRoughnessTex = obj.UseRoughnessTex;
             cb.UseMetallicTex = obj.UseMetallicTex;
             cb.UseAOTex = obj.UseAOTex;
+            cb.ShadingMode = (obj.MaterialShadingMode == EMaterialShadingMode::Unlit) ? 1.0f : 0.0f;
+            cb.UnlitIntensity = obj.UnlitIntensity;
 
             std::memcpy(Renderer.CBMappedObjects[Frame.FrameIndex] + (size_t)Renderer.CBSize * i, &cb, sizeof(cb));
         }
@@ -121,6 +123,8 @@ void FSceneRenderer::Render()
             cb.Albedo = { 0.35f, 0.9f, 0.35f };
             cb.Metallic = 0.0f;
             cb.Roughness = 0.6f;
+            cb.ShadingMode = 0.0f;
+            cb.UnlitIntensity = 1.0f;
             std::memcpy(Renderer.CBMappedObjects[Frame.FrameIndex] + (size_t)Renderer.CBSize * previewSlot, &cb, sizeof(cb));
         }
 

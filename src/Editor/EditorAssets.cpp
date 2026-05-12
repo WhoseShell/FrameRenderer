@@ -91,6 +91,22 @@ DirectX::XMFLOAT3 GetFloat3(const rdcimport::FJsonValue& obj, const char* key, c
     return { (float)a[0].AsNumber(), (float)a[1].AsNumber(), (float)a[2].AsNumber() };
 }
 
+std::wstring NormalizeShadingMode(std::wstring mode)
+{
+    std::transform(mode.begin(), mode.end(), mode.begin(), [](wchar_t c) { return (wchar_t)towlower(c); });
+    if (mode == L"unlit")
+        return L"Unlit";
+    return L"PbrLit";
+}
+
+std::string JsonFloat3(const DirectX::XMFLOAT3& v)
+{
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(6);
+    os << "[" << v.x << ", " << v.y << ", " << v.z << "]";
+    return os.str();
+}
+
 bool ReadTextFile(const std::filesystem::path& path, std::string& out, std::wstring* error)
 {
     std::ifstream file(path, std::ios::binary);
@@ -236,20 +252,40 @@ std::vector<FAssetRecord> ScanContent(const FContentLayout& layout)
 
 bool SaveMaterialFile(const std::filesystem::path& path, const FMaterialFile& material, std::wstring* error)
 {
+    const std::wstring mode = NormalizeShadingMode(material.ShadingMode);
     std::ostringstream os;
     os << std::fixed << std::setprecision(6);
     os << "{\n";
     os << "  \"type\": \"Material\",\n";
+    os << "  \"version\": 2,\n";
     os << "  \"name\": \"" << JsonEscape(material.Name) << "\",\n";
-    os << "  \"albedo\": [" << material.Albedo.x << ", " << material.Albedo.y << ", " << material.Albedo.z << "],\n";
-    os << "  \"metallic\": " << material.Metallic << ",\n";
-    os << "  \"roughness\": " << material.Roughness << ",\n";
+    os << "  \"shadingMode\": \"" << JsonEscape(mode) << "\",\n";
+    os << "  \"params\": {\n";
+    if (mode == L"Unlit")
+    {
+        os << "    \"Color\": " << JsonFloat3(material.Albedo) << ",\n";
+        os << "    \"Intensity\": " << material.Intensity << "\n";
+    }
+    else
+    {
+        os << "    \"BaseColor\": " << JsonFloat3(material.Albedo) << ",\n";
+        os << "    \"Metallic\": " << material.Metallic << ",\n";
+        os << "    \"Roughness\": " << material.Roughness << "\n";
+    }
+    os << "  },\n";
     os << "  \"textures\": {\n";
-    os << "    \"albedo\": \"" << JsonEscape(material.AlbedoTexture) << "\",\n";
-    os << "    \"normal\": \"" << JsonEscape(material.NormalTexture) << "\",\n";
-    os << "    \"roughness\": \"" << JsonEscape(material.RoughnessTexture) << "\",\n";
-    os << "    \"metallic\": \"" << JsonEscape(material.MetallicTexture) << "\",\n";
-    os << "    \"ao\": \"" << JsonEscape(material.AOTexture) << "\"\n";
+    if (mode == L"Unlit")
+    {
+        os << "    \"Color\": \"" << JsonEscape(material.AlbedoTexture) << "\"\n";
+    }
+    else
+    {
+        os << "    \"BaseColor\": \"" << JsonEscape(material.AlbedoTexture) << "\",\n";
+        os << "    \"Normal\": \"" << JsonEscape(material.NormalTexture) << "\",\n";
+        os << "    \"Roughness\": \"" << JsonEscape(material.RoughnessTexture) << "\",\n";
+        os << "    \"Metallic\": \"" << JsonEscape(material.MetallicTexture) << "\",\n";
+        os << "    \"AO\": \"" << JsonEscape(material.AOTexture) << "\"\n";
+    }
     os << "  }\n";
     os << "}\n";
     return WriteTextFile(path, os.str(), error);
@@ -265,17 +301,36 @@ bool LoadMaterialFile(const std::filesystem::path& path, FMaterialFile& material
         const rdcimport::FJsonValue root = rdcimport::ParseJson(text);
         if (!root.IsObject())
             throw std::runtime_error("root is not object");
+        material.Version = GetUInt(root, "version", 1);
         material.Name = GetString(root, "name", FileStem(path));
-        material.Albedo = GetFloat3(root, "albedo", material.Albedo);
-        material.Metallic = GetFloat(root, "metallic", material.Metallic);
-        material.Roughness = GetFloat(root, "roughness", material.Roughness);
+        material.ShadingMode = NormalizeShadingMode(GetString(root, "shadingMode", L"PbrLit"));
+        if (const rdcimport::FJsonValue* params = root.Find("params"); params && params->IsObject())
+        {
+            if (material.ShadingMode == L"Unlit")
+            {
+                material.Albedo = GetFloat3(*params, "Color", material.Albedo);
+                material.Intensity = GetFloat(*params, "Intensity", material.Intensity);
+            }
+            else
+            {
+                material.Albedo = GetFloat3(*params, "BaseColor", material.Albedo);
+                material.Metallic = GetFloat(*params, "Metallic", material.Metallic);
+                material.Roughness = GetFloat(*params, "Roughness", material.Roughness);
+            }
+        }
+        else
+        {
+            material.Albedo = GetFloat3(root, "albedo", material.Albedo);
+            material.Metallic = GetFloat(root, "metallic", material.Metallic);
+            material.Roughness = GetFloat(root, "roughness", material.Roughness);
+        }
         if (const rdcimport::FJsonValue* tex = root.Find("textures"); tex && tex->IsObject())
         {
-            material.AlbedoTexture = GetString(*tex, "albedo");
-            material.NormalTexture = GetString(*tex, "normal");
-            material.RoughnessTexture = GetString(*tex, "roughness");
-            material.MetallicTexture = GetString(*tex, "metallic");
-            material.AOTexture = GetString(*tex, "ao");
+            material.AlbedoTexture = GetString(*tex, "BaseColor", GetString(*tex, "Color", GetString(*tex, "albedo")));
+            material.NormalTexture = GetString(*tex, "Normal", GetString(*tex, "normal"));
+            material.RoughnessTexture = GetString(*tex, "Roughness", GetString(*tex, "roughness"));
+            material.MetallicTexture = GetString(*tex, "Metallic", GetString(*tex, "metallic"));
+            material.AOTexture = GetString(*tex, "AO", GetString(*tex, "ao"));
         }
     }
     catch (const std::exception& e)

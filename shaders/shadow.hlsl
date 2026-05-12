@@ -17,7 +17,9 @@ cbuffer SceneCB : register(b0)
     float  g_useRoughnessTex;
     float  g_useMetallicTex;
     float  g_useAOTex;
-    float3 _pad2;
+    float  g_shadingMode;
+    float  g_unlitIntensity;
+    float2 _pad2;
 };
 
 cbuffer ShadowCB : register(b1)

@@ -37,6 +37,25 @@ constexpr int IDC_CONTENT_DRAWER_TOGGLE = 5015;
 constexpr int IDC_PLACE_ACTORS_TOGGLE = 5016;
 constexpr int IDC_OUTLINER_LIST = 5101;
 constexpr int IDC_APPLY_DETAILS = 5201;
+constexpr int IDC_MATERIAL_SHADING_MODE = 4100;
+constexpr int IDC_MATERIAL_COLOR = 4101;
+constexpr int IDC_MATERIAL_APPLY = 4102;
+constexpr int IDC_MATERIAL_PARAM_A = 4103;
+constexpr int IDC_MATERIAL_PARAM_B = 4104;
+constexpr int IDC_MATERIAL_TEX0 = 4105;
+constexpr int IDC_MATERIAL_TEX1 = 4106;
+constexpr int IDC_MATERIAL_TEX2 = 4107;
+constexpr int IDC_MATERIAL_TEX3 = 4108;
+constexpr int IDC_MATERIAL_TEX4 = 4109;
+constexpr int IDC_MATERIAL_LABEL_SHADING = 4110;
+constexpr int IDC_MATERIAL_LABEL_COLOR = 4111;
+constexpr int IDC_MATERIAL_LABEL_PARAM_A = 4113;
+constexpr int IDC_MATERIAL_LABEL_PARAM_B = 4114;
+constexpr int IDC_MATERIAL_LABEL_TEX0 = 4115;
+constexpr int IDC_MATERIAL_LABEL_TEX1 = 4116;
+constexpr int IDC_MATERIAL_LABEL_TEX2 = 4117;
+constexpr int IDC_MATERIAL_LABEL_TEX3 = 4118;
+constexpr int IDC_MATERIAL_LABEL_TEX4 = 4119;
 
 constexpr COLORREF kEditorBackground = RGB(20, 20, 20);
 constexpr COLORREF kEditorPanel = RGB(31, 31, 31);
@@ -101,6 +120,68 @@ std::wstring ToLowerCopy(std::wstring text)
     for (wchar_t& c : text)
         c = (wchar_t)::towlower(c);
     return text;
+}
+
+struct FMaterialSchema
+{
+    EMaterialShadingMode Mode;
+    const wchar_t* Name;
+    const wchar_t* ColorLabel;
+    const wchar_t* ParamALabel;
+    const wchar_t* ParamBLabel;
+    bool HasParamB;
+    const wchar_t* TextureLabels[5];
+    int TextureCount;
+};
+
+constexpr FMaterialSchema kMaterialSchemas[] = {
+    { EMaterialShadingMode::PbrLit, L"PbrLit", L"Base Color:", L"Roughness:", L"Metallic:", true,
+        { L"BaseColor Tex:", L"Normal Tex:", L"Rough Tex:", L"Metal Tex:", L"AO Tex:" }, 5 },
+    { EMaterialShadingMode::Unlit, L"Unlit", L"Color:", L"Intensity:", L"", false,
+        { L"Color Tex:", L"", L"", L"", L"" }, 1 },
+};
+
+const FMaterialSchema& GetMaterialSchema(EMaterialShadingMode mode)
+{
+    for (const FMaterialSchema& schema : kMaterialSchemas)
+    {
+        if (schema.Mode == mode)
+            return schema;
+    }
+    return kMaterialSchemas[0];
+}
+
+EMaterialShadingMode ParseMaterialShadingMode(const std::wstring& text)
+{
+    const std::wstring lower = ToLowerCopy(text);
+    for (const FMaterialSchema& schema : kMaterialSchemas)
+    {
+        if (lower == ToLowerCopy(schema.Name))
+            return schema.Mode;
+    }
+    return EMaterialShadingMode::PbrLit;
+}
+
+std::wstring MaterialShadingModeName(EMaterialShadingMode mode)
+{
+    return GetMaterialSchema(mode).Name;
+}
+
+int MaterialShadingModeComboIndex(EMaterialShadingMode mode)
+{
+    for (int i = 0; i < (int)(sizeof(kMaterialSchemas) / sizeof(kMaterialSchemas[0])); ++i)
+    {
+        if (kMaterialSchemas[i].Mode == mode)
+            return i;
+    }
+    return 0;
+}
+
+EMaterialShadingMode MaterialShadingModeFromComboIndex(int index)
+{
+    if (index >= 0 && index < (int)(sizeof(kMaterialSchemas) / sizeof(kMaterialSchemas[0])))
+        return kMaterialSchemas[index].Mode;
+    return EMaterialShadingMode::PbrLit;
 }
 }
 
@@ -1006,15 +1087,21 @@ LRESULT CALLBACK FEngine::MaterialEditorWndProc(HWND hwnd, UINT msg, WPARAM wPar
     case WM_COMMAND:
         if (!engine) break;
         // ComboBox 改变时立即应用材质参数。
-        if ((LOWORD(wParam) == 4105 || LOWORD(wParam) == 4106 || LOWORD(wParam) == 4107 || LOWORD(wParam) == 4108 || LOWORD(wParam) == 4109) &&
+        if ((LOWORD(wParam) == IDC_MATERIAL_SHADING_MODE ||
+             LOWORD(wParam) == IDC_MATERIAL_TEX0 ||
+             LOWORD(wParam) == IDC_MATERIAL_TEX1 ||
+             LOWORD(wParam) == IDC_MATERIAL_TEX2 ||
+             LOWORD(wParam) == IDC_MATERIAL_TEX3 ||
+             LOWORD(wParam) == IDC_MATERIAL_TEX4) &&
             HIWORD(wParam) == CBN_SELCHANGE)
         {
             engine->ApplyMaterialEditorChanges();
+            engine->UpdateMaterialEditorControls();
             return 0;
         }
         switch (LOWORD(wParam))
         {
-        case 4101: // Color
+        case IDC_MATERIAL_COLOR:
         {
             if (engine->EditingMaterialIndex < 0 || engine->EditingMaterialIndex >= (int)engine->Materials.size()) break;
             // 弹出颜色选择器并回写材质颜色。
@@ -1034,7 +1121,7 @@ LRESULT CALLBACK FEngine::MaterialEditorWndProc(HWND hwnd, UINT msg, WPARAM wPar
             }
             return 0;
         }
-        case 4102: // Apply
+        case IDC_MATERIAL_APPLY:
             // 手动应用按钮。
             engine->ApplyMaterialEditorChanges();
             return 0;
@@ -1541,6 +1628,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // Create a new material, optionally from selected texture average color.
             FMaterialAsset mat{};
             mat.Name = L"Material " + std::to_wstring((int)Materials.size() + 1);
+            mat.ShadingMode = EMaterialShadingMode::PbrLit;
             if (SelectedTextureIndex >= 0 && SelectedTextureIndex < (int)Textures.size())
             {
                 mat.Albedo = Textures[SelectedTextureIndex].AvgColor;
@@ -1563,8 +1651,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             mat.MetallicTexSlot = 3;
             mat.AOTexSlot = 4;
 
-            mat.SRVBase = Renderer.AllocateMaterialSRVBlock();
-            Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
+            UpdateMaterialRuntimeBindings(mat);
             Materials.push_back(mat);
             SaveMaterialAsset((int)Materials.size() - 1);
             SelectContentFilter(EContentFilter::Materials);
@@ -2579,17 +2666,7 @@ void FEngine::PreviewMaterialAsset(int materialIndex, bool openEditor)
     object.Position = pos;
     object.Scale = { 1.0f, 1.0f, 1.0f };
     object.Radius = 0.75f;
-    object.Albedo = mat.Albedo;
-    object.Metallic = mat.Metallic;
-    object.Roughness = mat.Roughness;
-    object.MaterialIndex = materialIndex;
-    object.MaterialPath = mat.AssetPath;
-    object.MaterialSRVBase = mat.SRVBase;
-    object.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseNormalTex = (mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseMetallicTex = (mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
+    ApplyMaterialAssetToSceneObject(object, materialIndex);
 
     bAssetPreviewActive = true;
     AssetPreviewObject = object;
@@ -2809,6 +2886,28 @@ int FEngine::FindMaterialByAssetPath(const std::wstring& relativePath) const
     return -1;
 }
 
+void FEngine::MigrateContentMaterialsToV2()
+{
+    for (const editor::FAssetRecord& asset : ContentAssets)
+    {
+        if (asset.Kind != editor::EAssetKind::Material)
+            continue;
+
+        editor::FMaterialFile material{};
+        std::wstring error;
+        if (!editor::LoadMaterialFile(asset.AbsolutePath, material, &error))
+            continue;
+
+        if (material.Version >= 2)
+            continue;
+
+        material.Version = 2;
+        if (material.ShadingMode.empty())
+            material.ShadingMode = L"PbrLit";
+        editor::SaveMaterialFile(asset.AbsolutePath, material, &error);
+    }
+}
+
 void FEngine::LoadContentMaterials()
 {
     const std::vector<editor::FAssetRecord> assets = ContentAssets;
@@ -2824,9 +2923,11 @@ void FEngine::LoadContentMaterials()
         FMaterialAsset mat{};
         mat.Name = src.Name.empty() ? asset.Name : src.Name;
         mat.AssetPath = asset.RelativePath;
+        mat.ShadingMode = ParseMaterialShadingMode(src.ShadingMode);
         mat.Albedo = src.Albedo;
         mat.Metallic = src.Metallic;
         mat.Roughness = src.Roughness;
+        mat.UnlitIntensity = std::max(0.0f, src.Intensity);
         mat.AlbedoTexPath = src.AlbedoTexture;
         mat.NormalTexPath = src.NormalTexture;
         mat.RoughnessTexPath = src.RoughnessTexture;
@@ -2838,17 +2939,49 @@ void FEngine::LoadContentMaterials()
         mat.RoughnessTexIndex = EnsureTextureLoaded(mat.RoughnessTexPath);
         mat.MetallicTexIndex = EnsureTextureLoaded(mat.MetallicTexPath);
         mat.AOTexIndex = EnsureTextureLoaded(mat.AOTexPath);
-        mat.AlbedoTexSlot = (mat.AlbedoTexIndex >= 0) ? Textures[(size_t)mat.AlbedoTexIndex].RendererSlot : 0;
-        mat.NormalTexSlot = (mat.NormalTexIndex >= 0) ? Textures[(size_t)mat.NormalTexIndex].RendererSlot : 1;
-        mat.RoughnessTexSlot = (mat.RoughnessTexIndex >= 0) ? Textures[(size_t)mat.RoughnessTexIndex].RendererSlot : 2;
-        mat.MetallicTexSlot = (mat.MetallicTexIndex >= 0) ? Textures[(size_t)mat.MetallicTexIndex].RendererSlot : 3;
-        mat.AOTexSlot = (mat.AOTexIndex >= 0) ? Textures[(size_t)mat.AOTexIndex].RendererSlot : 4;
-        mat.SRVBase = Renderer.AllocateMaterialSRVBlock();
-        Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
+        UpdateMaterialRuntimeBindings(mat);
         Materials.push_back(mat);
         if (MaterialList)
             SendMessageW(MaterialList, LB_ADDSTRING, 0, (LPARAM)mat.Name.c_str());
     }
+}
+
+void FEngine::UpdateMaterialRuntimeBindings(FMaterialAsset& mat)
+{
+    mat.AlbedoTexSlot = (mat.AlbedoTexIndex >= 0 && mat.AlbedoTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.AlbedoTexIndex].RendererSlot : 0;
+    mat.NormalTexSlot = (mat.NormalTexIndex >= 0 && mat.NormalTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.NormalTexIndex].RendererSlot : 1;
+    mat.RoughnessTexSlot = (mat.RoughnessTexIndex >= 0 && mat.RoughnessTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.RoughnessTexIndex].RendererSlot : 2;
+    mat.MetallicTexSlot = (mat.MetallicTexIndex >= 0 && mat.MetallicTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.MetallicTexIndex].RendererSlot : 3;
+    mat.AOTexSlot = (mat.AOTexIndex >= 0 && mat.AOTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.AOTexIndex].RendererSlot : 4;
+
+    if (mat.SRVBase <= 0)
+        mat.SRVBase = Renderer.AllocateMaterialSRVBlock();
+
+    if (mat.ShadingMode == EMaterialShadingMode::Unlit)
+        Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, 1, 2, 3, 4);
+    else
+        Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
+}
+
+void FEngine::ApplyMaterialAssetToSceneObject(FSceneObject& object, int materialIndex) const
+{
+    if (materialIndex < 0 || materialIndex >= (int)Materials.size())
+        return;
+
+    const auto& mat = Materials[(size_t)materialIndex];
+    object.Albedo = mat.Albedo;
+    object.Metallic = mat.Metallic;
+    object.Roughness = mat.Roughness;
+    object.MaterialIndex = materialIndex;
+    object.MaterialPath = mat.AssetPath;
+    object.MaterialSRVBase = mat.SRVBase;
+    object.MaterialShadingMode = mat.ShadingMode;
+    object.UnlitIntensity = mat.UnlitIntensity;
+    object.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseNormalTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseRoughnessTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseMetallicTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseAOTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
 }
 
 void FEngine::SaveMaterialAsset(int materialIndex)
@@ -2868,9 +3001,11 @@ void FEngine::SaveMaterialAsset(int materialIndex)
 
     editor::FMaterialFile out{};
     out.Name = mat.Name;
+    out.ShadingMode = MaterialShadingModeName(mat.ShadingMode);
     out.Albedo = mat.Albedo;
     out.Metallic = mat.Metallic;
     out.Roughness = mat.Roughness;
+    out.Intensity = mat.UnlitIntensity;
     out.AlbedoTexture = (mat.AlbedoTexIndex >= 0 && mat.AlbedoTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.AlbedoTexIndex].RelativePath : mat.AlbedoTexPath;
     out.NormalTexture = (mat.NormalTexIndex >= 0 && mat.NormalTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.NormalTexIndex].RelativePath : mat.NormalTexPath;
     out.RoughnessTexture = (mat.RoughnessTexIndex >= 0 && mat.RoughnessTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.RoughnessTexIndex].RelativePath : mat.RoughnessTexPath;
@@ -2886,19 +3021,7 @@ void FEngine::ApplyMaterialToObject(int objectIndex, int materialIndex)
 {
     if (objectIndex < 0 || objectIndex >= (int)Objects.size() || materialIndex < 0 || materialIndex >= (int)Materials.size())
         return;
-    const auto& mat = Materials[(size_t)materialIndex];
-    FSceneObject& object = Objects[(size_t)objectIndex];
-    object.Albedo = mat.Albedo;
-    object.Metallic = mat.Metallic;
-    object.Roughness = mat.Roughness;
-    object.MaterialIndex = materialIndex;
-    object.MaterialPath = mat.AssetPath;
-    object.MaterialSRVBase = mat.SRVBase;
-    object.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseNormalTex = (mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseMetallicTex = (mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
+    ApplyMaterialAssetToSceneObject(Objects[(size_t)objectIndex], materialIndex);
     MarkLevelDirty();
 }
 
@@ -3115,7 +3238,7 @@ void FEngine::OpenMaterialEditor(int materialIndex)
     if (!MaterialEditorHwnd)
     {
         // 创建材质编辑器窗口与子控件。
-        constexpr int kSliderSteps = 10000; // higher precision for roughness/metallic
+        constexpr int kSliderSteps = 10000;
 
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
@@ -3133,46 +3256,50 @@ void FEngine::OpenMaterialEditor(int materialIndex)
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             420,
-            340,
+            380,
             Window.GetHwnd(),
             nullptr,
             wc.hInstance,
             this);
 
-        // Create child controls
-        CreateWindowExW(0, L"STATIC", L"Color:", WS_CHILD | WS_VISIBLE, 16, 18, 60, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, L"BUTTON", L"Pick...", WS_CHILD | WS_VISIBLE, 90, 14, 80, 24, MaterialEditorHwnd, (HMENU)4101, wc.hInstance, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Shading Mode:", WS_CHILD | WS_VISIBLE, 16, 18, 90, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_SHADING), wc.hInstance, nullptr);
+        HWND modeCombo = CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 14, 260, 200, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_SHADING_MODE), wc.hInstance, nullptr);
+        for (const FMaterialSchema& schema : kMaterialSchemas)
+            SendMessageW(modeCombo, CB_ADDSTRING, 0, (LPARAM)schema.Name);
 
-        CreateWindowExW(0, L"STATIC", L"Roughness:", WS_CHILD | WS_VISIBLE, 16, 60, 80, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 110, 56, 260, 30, MaterialEditorHwnd, (HMENU)4103, wc.hInstance, nullptr);
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4103), TBM_SETRANGE, TRUE, MAKELPARAM(0, kSliderSteps));
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4103), TBM_SETTICFREQ, 1000, 0);
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4103), TBM_SETLINESIZE, 0, 10);
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4103), TBM_SETPAGESIZE, 0, 100);
+        CreateWindowExW(0, L"STATIC", L"Base Color:", WS_CHILD | WS_VISIBLE, 16, 52, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_COLOR), wc.hInstance, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Pick...", WS_CHILD | WS_VISIBLE, 110, 48, 80, 24, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_COLOR), wc.hInstance, nullptr);
 
-        CreateWindowExW(0, L"STATIC", L"Metallic:", WS_CHILD | WS_VISIBLE, 16, 98, 80, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 110, 94, 260, 30, MaterialEditorHwnd, (HMENU)4104, wc.hInstance, nullptr);
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4104), TBM_SETRANGE, TRUE, MAKELPARAM(0, kSliderSteps));
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4104), TBM_SETTICFREQ, 1000, 0);
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4104), TBM_SETLINESIZE, 0, 10);
-        SendMessageW(GetDlgItem(MaterialEditorHwnd, 4104), TBM_SETPAGESIZE, 0, 100);
+        CreateWindowExW(0, L"STATIC", L"Roughness:", WS_CHILD | WS_VISIBLE, 16, 92, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_PARAM_A), wc.hInstance, nullptr);
+        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 110, 88, 260, 30, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_PARAM_A), wc.hInstance, nullptr);
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_A), TBM_SETRANGE, TRUE, MAKELPARAM(0, kSliderSteps));
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_A), TBM_SETTICFREQ, 1000, 0);
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_A), TBM_SETLINESIZE, 0, 10);
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_A), TBM_SETPAGESIZE, 0, 100);
 
-        CreateWindowExW(0, L"STATIC", L"Albedo Tex:", WS_CHILD | WS_VISIBLE, 16, 138, 80, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 134, 260, 200, MaterialEditorHwnd, (HMENU)4105, wc.hInstance, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Metallic:", WS_CHILD | WS_VISIBLE, 16, 130, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_PARAM_B), wc.hInstance, nullptr);
+        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_AUTOTICKS, 110, 126, 260, 30, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_PARAM_B), wc.hInstance, nullptr);
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_B), TBM_SETRANGE, TRUE, MAKELPARAM(0, kSliderSteps));
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_B), TBM_SETTICFREQ, 1000, 0);
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_B), TBM_SETLINESIZE, 0, 10);
+        SendMessageW(GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_B), TBM_SETPAGESIZE, 0, 100);
 
-        CreateWindowExW(0, L"STATIC", L"Normal Tex:", WS_CHILD | WS_VISIBLE, 16, 164, 80, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 160, 260, 200, MaterialEditorHwnd, (HMENU)4106, wc.hInstance, nullptr);
+        CreateWindowExW(0, L"STATIC", L"BaseColor Tex:", WS_CHILD | WS_VISIBLE, 16, 170, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_TEX0), wc.hInstance, nullptr);
+        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 166, 260, 200, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_TEX0), wc.hInstance, nullptr);
 
-        CreateWindowExW(0, L"STATIC", L"Rough Tex:", WS_CHILD | WS_VISIBLE, 16, 190, 80, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 186, 260, 200, MaterialEditorHwnd, (HMENU)4107, wc.hInstance, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Normal Tex:", WS_CHILD | WS_VISIBLE, 16, 196, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_TEX1), wc.hInstance, nullptr);
+        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 192, 260, 200, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_TEX1), wc.hInstance, nullptr);
 
-        CreateWindowExW(0, L"STATIC", L"Metal Tex:", WS_CHILD | WS_VISIBLE, 16, 216, 80, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 212, 260, 200, MaterialEditorHwnd, (HMENU)4108, wc.hInstance, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Rough Tex:", WS_CHILD | WS_VISIBLE, 16, 222, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_TEX2), wc.hInstance, nullptr);
+        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 218, 260, 200, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_TEX2), wc.hInstance, nullptr);
 
-        CreateWindowExW(0, L"STATIC", L"AO Tex:", WS_CHILD | WS_VISIBLE, 16, 242, 80, 18, MaterialEditorHwnd, nullptr, wc.hInstance, nullptr);
-        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 238, 260, 200, MaterialEditorHwnd, (HMENU)4109, wc.hInstance, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Metal Tex:", WS_CHILD | WS_VISIBLE, 16, 248, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_TEX3), wc.hInstance, nullptr);
+        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 244, 260, 200, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_TEX3), wc.hInstance, nullptr);
 
-        CreateWindowExW(0, L"BUTTON", L"Apply", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 276, 80, 26, MaterialEditorHwnd, (HMENU)4102, wc.hInstance, nullptr);
+        CreateWindowExW(0, L"STATIC", L"AO Tex:", WS_CHILD | WS_VISIBLE, 16, 274, 88, 18, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_LABEL_TEX4), wc.hInstance, nullptr);
+        CreateWindowExW(0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 110, 270, 260, 200, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_TEX4), wc.hInstance, nullptr);
+
+        CreateWindowExW(0, L"BUTTON", L"Apply", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 290, 308, 80, 26, MaterialEditorHwnd, MenuHandle(IDC_MATERIAL_APPLY), wc.hInstance, nullptr);
     }
 
     // 更新窗口标题并刷新控件内容。
@@ -3199,13 +3326,55 @@ void FEngine::UpdateMaterialEditorControls()
     constexpr float kSliderSteps = 10000.0f;
 
     // 更新粗糙度与金属度滑条。
-    HWND rough = GetDlgItem(MaterialEditorHwnd, 4103);
-    HWND metal = GetDlgItem(MaterialEditorHwnd, 4104);
-    if (rough) SendMessageW(rough, TBM_SETPOS, TRUE, (LPARAM)(int)(mat.Roughness * kSliderSteps));
-    if (metal) SendMessageW(metal, TBM_SETPOS, TRUE, (LPARAM)(int)(mat.Metallic * kSliderSteps));
+    if (HWND mode = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_SHADING_MODE))
+        SendMessageW(mode, CB_SETCURSEL, (WPARAM)MaterialShadingModeComboIndex(mat.ShadingMode), 0);
+
+    const FMaterialSchema& schema = GetMaterialSchema(mat.ShadingMode);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_COLOR))
+        SetWindowTextW(label, schema.ColorLabel);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_PARAM_A))
+        SetWindowTextW(label, schema.ParamALabel);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_PARAM_B))
+        SetWindowTextW(label, schema.ParamBLabel);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_TEX0))
+        SetWindowTextW(label, schema.TextureLabels[0]);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_TEX1))
+        SetWindowTextW(label, schema.TextureLabels[1]);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_TEX2))
+        SetWindowTextW(label, schema.TextureLabels[2]);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_TEX3))
+        SetWindowTextW(label, schema.TextureLabels[3]);
+    if (HWND label = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_LABEL_TEX4))
+        SetWindowTextW(label, schema.TextureLabels[4]);
+
+    HWND paramA = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_A);
+    HWND paramB = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_B);
+    if (paramA)
+    {
+        const float v = (mat.ShadingMode == EMaterialShadingMode::Unlit) ? Clamp(mat.UnlitIntensity / 5.0f, 0.0f, 1.0f) : Clamp(mat.Roughness, 0.0f, 1.0f);
+        SendMessageW(paramA, TBM_SETPOS, TRUE, (LPARAM)(int)(v * kSliderSteps));
+    }
+    if (paramB)
+        SendMessageW(paramB, TBM_SETPOS, TRUE, (LPARAM)(int)(Clamp(mat.Metallic, 0.0f, 1.0f) * kSliderSteps));
+
+    auto setVisible = [&](int id, bool visible)
+    {
+        HWND h = GetDlgItem(MaterialEditorHwnd, id);
+        if (h) ShowWindow(h, visible ? SW_SHOW : SW_HIDE);
+    };
+    setVisible(IDC_MATERIAL_LABEL_PARAM_B, schema.HasParamB);
+    setVisible(IDC_MATERIAL_PARAM_B, schema.HasParamB);
+    setVisible(IDC_MATERIAL_LABEL_TEX1, schema.TextureCount > 1);
+    setVisible(IDC_MATERIAL_TEX1, schema.TextureCount > 1);
+    setVisible(IDC_MATERIAL_LABEL_TEX2, schema.TextureCount > 2);
+    setVisible(IDC_MATERIAL_TEX2, schema.TextureCount > 2);
+    setVisible(IDC_MATERIAL_LABEL_TEX3, schema.TextureCount > 3);
+    setVisible(IDC_MATERIAL_TEX3, schema.TextureCount > 3);
+    setVisible(IDC_MATERIAL_LABEL_TEX4, schema.TextureCount > 4);
+    setVisible(IDC_MATERIAL_TEX4, schema.TextureCount > 4);
 
     // 填充 Albedo 纹理下拉框。
-    HWND combo = GetDlgItem(MaterialEditorHwnd, 4105);
+    HWND combo = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_TEX0);
     if (combo)
     {
         SendMessageW(combo, CB_RESETCONTENT, 0, 0);
@@ -3238,10 +3407,10 @@ void FEngine::UpdateMaterialEditorControls()
         SendMessageW(cb, CB_SETCURSEL, sel, 0);
     };
 
-    setupCombo(4106, mat.NormalTexIndex);
-    setupCombo(4107, mat.RoughnessTexIndex);
-    setupCombo(4108, mat.MetallicTexIndex);
-    setupCombo(4109, mat.AOTexIndex);
+    setupCombo(IDC_MATERIAL_TEX1, mat.NormalTexIndex);
+    setupCombo(IDC_MATERIAL_TEX2, mat.RoughnessTexIndex);
+    setupCombo(IDC_MATERIAL_TEX3, mat.MetallicTexIndex);
+    setupCombo(IDC_MATERIAL_TEX4, mat.AOTexIndex);
 }
 
 /**
@@ -3257,13 +3426,40 @@ void FEngine::ApplyMaterialEditorChanges()
 
     auto& mat = Materials[EditingMaterialIndex];
     constexpr float kSliderSteps = 10000.0f;
+    const EMaterialShadingMode previousMode = mat.ShadingMode;
 
     // 读取滑条并更新粗糙度与金属度。
-    HWND rough = GetDlgItem(MaterialEditorHwnd, 4103);
-    HWND metal = GetDlgItem(MaterialEditorHwnd, 4104);
+    if (HWND mode = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_SHADING_MODE))
+    {
+        const int sel = (int)SendMessageW(mode, CB_GETCURSEL, 0, 0);
+        mat.ShadingMode = MaterialShadingModeFromComboIndex(sel);
+    }
+    const bool modeChanged = previousMode != mat.ShadingMode;
 
-    if (rough) mat.Roughness = Clamp((float)SendMessageW(rough, TBM_GETPOS, 0, 0) / kSliderSteps, 0.0f, 1.0f);
-    if (metal) mat.Metallic = Clamp((float)SendMessageW(metal, TBM_GETPOS, 0, 0) / kSliderSteps, 0.0f, 1.0f);
+    HWND paramA = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_A);
+    HWND paramB = GetDlgItem(MaterialEditorHwnd, IDC_MATERIAL_PARAM_B);
+    if (modeChanged)
+    {
+        if (mat.ShadingMode == EMaterialShadingMode::Unlit)
+        {
+            mat.UnlitIntensity = 1.0f;
+        }
+        else
+        {
+            mat.Roughness = 0.5f;
+            mat.Metallic = 0.0f;
+        }
+    }
+    else if (paramA)
+    {
+        const float value = Clamp((float)SendMessageW(paramA, TBM_GETPOS, 0, 0) / kSliderSteps, 0.0f, 1.0f);
+        if (mat.ShadingMode == EMaterialShadingMode::Unlit)
+            mat.UnlitIntensity = value * 5.0f;
+        else
+            mat.Roughness = value;
+    }
+    if (!modeChanged && paramB && mat.ShadingMode == EMaterialShadingMode::PbrLit)
+        mat.Metallic = Clamp((float)SendMessageW(paramB, TBM_GETPOS, 0, 0) / kSliderSteps, 0.0f, 1.0f);
 
     // 读取下拉框选择，更新纹理索引与槽位。
     auto readCombo = [&](int id, int& outIndex, int& outSlot, int defaultSlot)
@@ -3284,19 +3480,32 @@ void FEngine::ApplyMaterialEditorChanges()
         }
     };
 
-    readCombo(4105, mat.AlbedoTexIndex, mat.AlbedoTexSlot, 0);
-    readCombo(4106, mat.NormalTexIndex, mat.NormalTexSlot, 1);
-    readCombo(4107, mat.RoughnessTexIndex, mat.RoughnessTexSlot, 2);
-    readCombo(4108, mat.MetallicTexIndex, mat.MetallicTexSlot, 3);
-    readCombo(4109, mat.AOTexIndex, mat.AOTexSlot, 4);
+    readCombo(IDC_MATERIAL_TEX0, mat.AlbedoTexIndex, mat.AlbedoTexSlot, 0);
+    if (mat.ShadingMode == EMaterialShadingMode::PbrLit)
+    {
+        readCombo(IDC_MATERIAL_TEX1, mat.NormalTexIndex, mat.NormalTexSlot, 1);
+        readCombo(IDC_MATERIAL_TEX2, mat.RoughnessTexIndex, mat.RoughnessTexSlot, 2);
+        readCombo(IDC_MATERIAL_TEX3, mat.MetallicTexIndex, mat.MetallicTexSlot, 3);
+        readCombo(IDC_MATERIAL_TEX4, mat.AOTexIndex, mat.AOTexSlot, 4);
+    }
+    else
+    {
+        mat.NormalTexIndex = -1;
+        mat.RoughnessTexIndex = -1;
+        mat.MetallicTexIndex = -1;
+        mat.AOTexIndex = -1;
+        mat.NormalTexSlot = 1;
+        mat.RoughnessTexSlot = 2;
+        mat.MetallicTexSlot = 3;
+        mat.AOTexSlot = 4;
+    }
     mat.AlbedoTexPath = (mat.AlbedoTexIndex >= 0) ? Textures[(size_t)mat.AlbedoTexIndex].RelativePath : L"";
     mat.NormalTexPath = (mat.NormalTexIndex >= 0) ? Textures[(size_t)mat.NormalTexIndex].RelativePath : L"";
     mat.RoughnessTexPath = (mat.RoughnessTexIndex >= 0) ? Textures[(size_t)mat.RoughnessTexIndex].RelativePath : L"";
     mat.MetallicTexPath = (mat.MetallicTexIndex >= 0) ? Textures[(size_t)mat.MetallicTexIndex].RelativePath : L"";
     mat.AOTexPath = (mat.AOTexIndex >= 0) ? Textures[(size_t)mat.AOTexIndex].RelativePath : L"";
 
-    // Update renderer descriptor block.
-    Renderer.UpdateMaterialSRVBlock(mat.SRVBase, mat.AlbedoTexSlot, mat.NormalTexSlot, mat.RoughnessTexSlot, mat.MetallicTexSlot, mat.AOTexSlot);
+    UpdateMaterialRuntimeBindings(mat);
 
     // Hot-reload objects that reference this material index.
     for (auto& obj : Objects)
@@ -3304,16 +3513,7 @@ void FEngine::ApplyMaterialEditorChanges()
         if (obj.MaterialIndex == EditingMaterialIndex)
         {
             // 同步材质参数到对象实例。
-            obj.Albedo = mat.Albedo;
-            obj.Metallic = mat.Metallic;
-            obj.Roughness = mat.Roughness;
-            obj.MaterialSRVBase = mat.SRVBase;
-            obj.MaterialPath = mat.AssetPath;
-            obj.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
-            obj.UseNormalTex = (mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
-            obj.UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
-            obj.UseMetallicTex = (mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
-            obj.UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
+            ApplyMaterialAssetToSceneObject(obj, EditingMaterialIndex);
         }
     }
     SaveMaterialAsset(EditingMaterialIndex);
@@ -4824,6 +5024,7 @@ void FEngine::Run(HINSTANCE hInstance)
     }
     Renderer.Init(RHI);
     RefreshContentBrowser();
+    MigrateContentMaterialsToV2();
     LoadContentMaterials();
 
     // 初始化后同步 HWRT 可用性与 UI。
@@ -4915,19 +5116,7 @@ void FEngine::Run(HINSTANCE hInstance)
                 if (bestIdx >= 0)
                 {
                     // 将材质参数应用到命中的物体。
-                    const auto& mat = Materials[PendingMaterialIndex];
-                    Objects[bestIdx].Albedo = mat.Albedo;
-                    Objects[bestIdx].Metallic = mat.Metallic;
-                    Objects[bestIdx].Roughness = mat.Roughness;
-                    Objects[bestIdx].MaterialIndex = PendingMaterialIndex;
-                    Objects[bestIdx].MaterialSRVBase = mat.SRVBase;
-                    Objects[bestIdx].UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
-                    Objects[bestIdx].UseNormalTex = (mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
-                    Objects[bestIdx].UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
-                    Objects[bestIdx].UseMetallicTex = (mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
-                    Objects[bestIdx].UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
-                    Objects[bestIdx].MaterialPath = mat.AssetPath;
-                    MarkLevelDirty();
+                    ApplyMaterialToObject(bestIdx, PendingMaterialIndex);
                     RefreshDetailsPanel();
                 }
             }

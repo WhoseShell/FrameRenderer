@@ -28,10 +28,13 @@ struct FAssetRecord
 
 struct FMaterialFile
 {
+    uint32 Version = 2;
     std::wstring Name;
+    std::wstring ShadingMode = L"PbrLit";
     DirectX::XMFLOAT3 Albedo{ 0.8f, 0.8f, 0.8f };
     float Metallic = 0.0f;
     float Roughness = 0.5f;
+    float Intensity = 1.0f;
     std::wstring AlbedoTexture;
     std::wstring NormalTexture;
     std::wstring RoughnessTexture;
