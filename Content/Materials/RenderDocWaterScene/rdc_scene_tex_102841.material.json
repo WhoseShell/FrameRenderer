@@ -1,0 +1,18 @@
+{
+  "type": "Material",
+  "name": "rdc_scene_tex_102841",
+  "albedo": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "metallic": 0.0,
+  "roughness": 0.72,
+  "textures": {
+    "albedo": "Textures/RenderDocWaterScene/rdc_scene_tex_102841_albedo.png",
+    "normal": "",
+    "roughness": "",
+    "metallic": "",
+    "ao": ""
+  }
+}

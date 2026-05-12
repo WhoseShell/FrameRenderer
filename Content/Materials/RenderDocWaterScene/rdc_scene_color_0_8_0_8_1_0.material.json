@@ -1,0 +1,18 @@
+{
+  "type": "Material",
+  "name": "rdc_scene_color_0_8_0_8_1_0",
+  "albedo": [
+    0.8857689960004791,
+    0.8935508588911034,
+    0.9004442425284651
+  ],
+  "metallic": 0.0,
+  "roughness": 0.72,
+  "textures": {
+    "albedo": "",
+    "normal": "",
+    "roughness": "",
+    "metallic": "",
+    "ao": ""
+  }
+}

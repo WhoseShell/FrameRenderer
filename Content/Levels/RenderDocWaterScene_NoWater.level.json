@@ -1,0 +1,2201 @@
+{
+  "type": "Level",
+  "name": "RenderDocWaterScene_NoWater",
+  "sun": {
+    "yaw": 0.785398,
+    "pitch": -0.65,
+    "intensity": 3.5
+  },
+  "objects": [
+    {
+      "id": 1,
+      "name": "rdc_scene_color_0_0_0_0_0_0",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_color_0_0_0_0_0_0.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_color_0_0_0_0_0_0.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        0.04,
+        0.04,
+        0.04
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 2,
+      "name": "rdc_scene_color_0_0_0_2_0_0",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_color_0_0_0_2_0_0.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_color_0_0_0_2_0_0.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        0.09468109433635555,
+        0.23529411852359772,
+        0.04
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 3,
+      "name": "rdc_scene_color_0_0_0_6_0_0",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_color_0_0_0_6_0_0.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_color_0_0_0_6_0_0.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        0.04,
+        0.501960813999176,
+        0.04
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 4,
+      "name": "rdc_scene_color_0_0_0_8_0_0",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_color_0_0_0_8_0_0.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_color_0_0_0_8_0_0.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        0.04,
+        0.7984127104282379,
+        0.04
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 5,
+      "name": "rdc_scene_color_0_2_0_2_0_0",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_color_0_2_0_2_0_0.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_color_0_2_0_2_0_0.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        0.19459474053731135,
+        0.23529411852359772,
+        0.04
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 6,
+      "name": "rdc_scene_color_0_8_0_8_1_0",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_color_0_8_0_8_1_0.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_color_0_8_0_8_1_0.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        0.8857689960004791,
+        0.8935508588911034,
+        0.9004442425284651
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 7,
+      "name": "rdc_scene_color_1_0_1_0_1_0",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_color_1_0_1_0_1_0.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_color_1_0_1_0_1_0.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 8,
+      "name": "rdc_scene_tex_100184",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100184.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100184.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 9,
+      "name": "rdc_scene_tex_100186",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100186.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100186.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 10,
+      "name": "rdc_scene_tex_100188",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100188.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100188.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 11,
+      "name": "rdc_scene_tex_100194",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100194.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100194.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 12,
+      "name": "rdc_scene_tex_100208",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100208.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100208.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 13,
+      "name": "rdc_scene_tex_100251",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100251.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100251.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 14,
+      "name": "rdc_scene_tex_100651",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100651.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100651.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 15,
+      "name": "rdc_scene_tex_100687",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_100687.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_100687.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 16,
+      "name": "rdc_scene_tex_101126",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101126.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101126.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 17,
+      "name": "rdc_scene_tex_101191",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101191.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101191.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 18,
+      "name": "rdc_scene_tex_101205",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101205.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101205.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 19,
+      "name": "rdc_scene_tex_101217",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101217.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101217.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 20,
+      "name": "rdc_scene_tex_101371",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101371.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101371.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 21,
+      "name": "rdc_scene_tex_101387",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101387.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101387.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 22,
+      "name": "rdc_scene_tex_101698",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101698.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101698.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 23,
+      "name": "rdc_scene_tex_101938",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101938.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101938.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 24,
+      "name": "rdc_scene_tex_101941",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101941.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101941.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 25,
+      "name": "rdc_scene_tex_101947",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101947.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101947.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 26,
+      "name": "rdc_scene_tex_101953",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_101953.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_101953.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 27,
+      "name": "rdc_scene_tex_102006",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102006.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102006.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 28,
+      "name": "rdc_scene_tex_102495",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102495.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102495.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 29,
+      "name": "rdc_scene_tex_102517",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102517.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102517.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 30,
+      "name": "rdc_scene_tex_102747",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102747.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102747.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 31,
+      "name": "rdc_scene_tex_102841",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102841.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102841.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 32,
+      "name": "rdc_scene_tex_102847",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102847.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102847.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 33,
+      "name": "rdc_scene_tex_102872",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102872.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102872.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 34,
+      "name": "rdc_scene_tex_102907",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102907.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102907.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 35,
+      "name": "rdc_scene_tex_102919",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102919.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102919.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 36,
+      "name": "rdc_scene_tex_102935",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102935.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102935.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 37,
+      "name": "rdc_scene_tex_102951",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102951.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102951.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 38,
+      "name": "rdc_scene_tex_102971",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_102971.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_102971.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 39,
+      "name": "rdc_scene_tex_103007",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103007.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103007.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 40,
+      "name": "rdc_scene_tex_103065",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103065.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103065.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 41,
+      "name": "rdc_scene_tex_103137",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103137.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103137.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 42,
+      "name": "rdc_scene_tex_103259",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103259.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103259.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 43,
+      "name": "rdc_scene_tex_103275",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103275.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103275.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 44,
+      "name": "rdc_scene_tex_103436",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103436.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103436.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 45,
+      "name": "rdc_scene_tex_103456",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103456.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103456.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 46,
+      "name": "rdc_scene_tex_103616",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103616.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103616.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 47,
+      "name": "rdc_scene_tex_103851",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103851.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103851.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 48,
+      "name": "rdc_scene_tex_103884",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103884.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103884.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 49,
+      "name": "rdc_scene_tex_103890",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_103890.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_103890.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 50,
+      "name": "rdc_scene_tex_104907",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_104907.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_104907.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 51,
+      "name": "rdc_scene_tex_106619",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_106619.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_106619.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 52,
+      "name": "rdc_scene_tex_107267",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_107267.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_107267.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 53,
+      "name": "rdc_scene_tex_107485",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_107485.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_107485.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 54,
+      "name": "rdc_scene_tex_108182",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_108182.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_108182.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 55,
+      "name": "rdc_scene_tex_108270",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_108270.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_108270.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 56,
+      "name": "rdc_scene_tex_108898",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_108898.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_108898.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 57,
+      "name": "rdc_scene_tex_109108",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_109108.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_109108.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 58,
+      "name": "rdc_scene_tex_109327",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_109327.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_109327.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 59,
+      "name": "rdc_scene_tex_110074",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_110074.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_110074.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 60,
+      "name": "rdc_scene_tex_110421",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_110421.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_110421.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 61,
+      "name": "rdc_scene_tex_110443",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_110443.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_110443.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 62,
+      "name": "rdc_scene_tex_110461",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_110461.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_110461.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 63,
+      "name": "rdc_scene_tex_110501",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_110501.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_110501.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 64,
+      "name": "rdc_scene_tex_110521",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_110521.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_110521.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 65,
+      "name": "rdc_scene_tex_20185",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_20185.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_20185.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 66,
+      "name": "rdc_scene_tex_5263366",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_5263366.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_5263366.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 67,
+      "name": "rdc_scene_tex_96109",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_96109.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_96109.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 68,
+      "name": "rdc_scene_tex_99169",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_99169.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_99169.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 69,
+      "name": "rdc_scene_tex_99188",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_99188.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_99188.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 70,
+      "name": "rdc_scene_tex_99309",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_99309.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_99309.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 71,
+      "name": "rdc_scene_tex_99436",
+      "type": "Static Mesh",
+      "asset": "Models/RenderDocWaterScene/rdc_scene_tex_99436.obj",
+      "material": "Materials/RenderDocWaterScene/rdc_scene_tex_99436.material.json",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "albedo": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.72,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 72,
+      "name": "Sun Light",
+      "type": "Sun Light",
+      "asset": "",
+      "material": "",
+      "position": [
+        6.0,
+        8.0,
+        -6.0
+      ],
+      "scale": [
+        0.18,
+        0.18,
+        0.18
+      ],
+      "albedo": [
+        1.0,
+        0.82,
+        0.18
+      ],
+      "metallic": 0.0,
+      "roughness": 0.35,
+      "lightIntensity": 3.5,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    },
+    {
+      "id": 73,
+      "name": "Sky Atmosphere",
+      "type": "Sky Atmosphere",
+      "asset": "",
+      "material": "",
+      "position": [
+        -2.5,
+        1.6,
+        -2.5
+      ],
+      "scale": [
+        0.28,
+        0.28,
+        0.28
+      ],
+      "albedo": [
+        0.2,
+        0.45,
+        0.95
+      ],
+      "metallic": 0.0,
+      "roughness": 0.75,
+      "lightIntensity": 3.0,
+      "skyEnabled": true,
+      "rayleighScale": 1.0,
+      "mieScale": 1.0,
+      "mieG": 0.8,
+      "atmosphereHeight": 12.0
+    }
+  ]
+}
