@@ -2,6 +2,8 @@
 
 #include "Core/Diagnostics.h"
 
+#include <algorithm>
+
 /**
  * @brief 创建 Win32 窗口并设置回调与尺寸。
  * @param hInstance 应用实例句柄。
@@ -23,8 +25,6 @@ void FWindowsWindow::Create(
 {
     // 记录窗口参数与回调，为后续消息转发准备。
     HINSTANCE module = hInstance ? hInstance : GetModuleHandleW(nullptr);
-    Width = width;
-    Height = height;
     Handler = handler;
     UserPtr = userPtr;
 
@@ -44,8 +44,39 @@ void FWindowsWindow::Create(
     }
 
     // 计算包含窗口装饰的实际窗口大小。
-    RECT r{ 0,0,(LONG)Width,(LONG)Height };
+    constexpr LONG kWindowMargin = 16;
+    RECT workArea{};
+    if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0))
+    {
+        workArea = { 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    }
+
+    const LONG workW = std::max<LONG>(1, workArea.right - workArea.left);
+    const LONG workH = std::max<LONG>(1, workArea.bottom - workArea.top);
+
+    RECT requestedOuter{ 0, 0, (LONG)width, (LONG)height };
+    AdjustWindowRect(&requestedOuter, WS_OVERLAPPEDWINDOW, FALSE);
+    const LONG frameW = (requestedOuter.right - requestedOuter.left) - (LONG)width;
+    const LONG frameH = (requestedOuter.bottom - requestedOuter.top) - (LONG)height;
+
+    LONG clientW = (LONG)width;
+    LONG clientH = (LONG)height;
+    if (workW > frameW + kWindowMargin * 2)
+        clientW = std::min(clientW, workW - frameW - kWindowMargin * 2);
+    if (workH > frameH + kWindowMargin * 2)
+        clientH = std::min(clientH, workH - frameH - kWindowMargin * 2);
+
+    clientW = std::max<LONG>(1, clientW);
+    clientH = std::max<LONG>(1, clientH);
+    Width = (uint32_t)clientW;
+    Height = (uint32_t)clientH;
+
+    RECT r{ 0, 0, clientW, clientH };
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+    const LONG outerW = r.right - r.left;
+    const LONG outerH = r.bottom - r.top;
+    const LONG x = workArea.left + std::max<LONG>(0, (workW - outerW) / 2);
+    const LONG y = workArea.top + std::max<LONG>(0, (workH - outerH) / 2);
 
     // 创建窗口并将 this 作为创建参数传入（用于 WM_NCCREATE 绑定）。
     Hwnd = CreateWindowExW(
@@ -53,10 +84,10 @@ void FWindowsWindow::Create(
         wc.lpszClassName,
         title,
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        r.right - r.left,
-        r.bottom - r.top,
+        x,
+        y,
+        outerW,
+        outerH,
         nullptr,
         nullptr,
         module,

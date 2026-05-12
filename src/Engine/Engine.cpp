@@ -3526,7 +3526,8 @@ void FEngine::LayoutUI()
     bringTop(AtmoHeightValueLabel);
     bringTop(AtmoHeightSlider);
     bringTop(SkyLabel);
-    bringTop(RightPanel);
+    if (RightPanel)
+        SetWindowPos(RightPanel, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     bringTop(OutlinerLabel);
     bringTop(OutlinerList);
     bringTop(DetailsLabel);
