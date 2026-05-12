@@ -208,6 +208,11 @@ private:
     int PendingDropMouseX = 0;
     int PendingDropMouseY = 0;
     int SelectedTextureIndex = -1;
+    bool bAssetPreviewActive = false;
+    FSceneObject AssetPreviewObject{};
+    std::wstring AssetPreviewLabel;
+    int AssetPreviewMaterialIndex = -1;
+    HBITMAP GeneratedPreviewBitmap = nullptr;
 
     struct FTextureAsset
     {
@@ -333,6 +338,16 @@ private:
     void LoadLevelFromPath(const std::filesystem::path& path);
     void ImportObjFromDialog();
     void PlaceSelectedContentAsset();
+    void PreviewSelectedContentAsset();
+    void PreviewContentAsset(const editor::FAssetRecord& asset);
+    void PreviewTextureAsset(const editor::FAssetRecord& asset);
+    void PreviewMaterialAsset(int materialIndex, bool openEditor);
+    void PreviewModelAsset(const editor::FAssetRecord& asset);
+    void ClearAssetPreview();
+    void FocusViewportOnObject(int objectIndex);
+    void SetPreviewBitmap(HBITMAP bitmap, bool takeOwnership);
+    void SelectTextureIndex(int textureIndex);
+    HBITMAP CreateMaterialPreviewBitmap(const DirectX::XMFLOAT3& color) const;
     int EnsureStaticMeshLoaded(const std::wstring& relativePath);
     int EnsureTextureLoaded(const std::wstring& relativePath);
     int FindTextureByRelativePath(const std::wstring& relativePath) const;

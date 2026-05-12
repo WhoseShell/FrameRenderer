@@ -1423,13 +1423,20 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         if ((HWND)lParam == ContentList && HIWORD(wParam) == LBN_DBLCLK)
         {
-            PlaceSelectedContentAsset();
+            PreviewSelectedContentAsset();
             return 0;
         }
         if ((HWND)lParam == OutlinerList && HIWORD(wParam) == LBN_SELCHANGE && !bSuppressOutlinerEvents)
         {
             const int sel = (int)SendMessageW(OutlinerList, LB_GETCURSEL, 0, 0);
             SetSelectedIndex(sel);
+            return 0;
+        }
+        if ((HWND)lParam == OutlinerList && HIWORD(wParam) == LBN_DBLCLK && !bSuppressOutlinerEvents)
+        {
+            const int sel = (int)SendMessageW(OutlinerList, LB_GETCURSEL, 0, 0);
+            SetSelectedIndex(sel);
+            FocusViewportOnObject(sel);
             return 0;
         }
         if ((HWND)lParam == ImportObjBtn && HIWORD(wParam) == BN_CLICKED)
@@ -1512,15 +1519,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         {
             // 纹理列表选择改变：更新预览。
             const int sel = (int)SendMessageW(TextureList, LB_GETCURSEL, 0, 0);
-            SelectedTextureIndex = sel;
-            if (TexturePreview)
-            {
-                HBITMAP bmp = nullptr;
-                if (sel >= 0 && sel < (int)Textures.size())
-                    bmp = Textures[sel].Preview;
-                SendMessageW(TexturePreview, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bmp);
-                InvalidateRect(TexturePreview, nullptr, TRUE);
-            }
+            SelectTextureIndex(sel);
             return 0;
         }
         if ((HWND)lParam == NewMaterialBtn && HIWORD(wParam) == BN_CLICKED)
@@ -1561,6 +1560,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 SendMessageW(MaterialList, LB_ADDSTRING, 0, (LPARAM)mat.Name.c_str());
                 SendMessageW(MaterialList, LB_SETCURSEL, (WPARAM)(Materials.size() - 1), 0);
             }
+            PreviewMaterialAsset((int)Materials.size() - 1, true);
             return 0;
         }
         if ((HWND)lParam == TonemapCheckbox && HIWORD(wParam) == BN_CLICKED)
@@ -1582,7 +1582,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             // 双击材质打开编辑器。
             const int sel = (int)SendMessageW(MaterialList, LB_GETCURSEL, 0, 0);
             if (sel >= 0)
-                OpenMaterialEditor(sel);
+                PreviewMaterialAsset(sel, true);
             return 0;
         }
         break;
@@ -1843,7 +1843,16 @@ void FEngine::RefreshContentBrowser()
     }
     if (ContentHintLabel)
     {
-        const std::wstring hint = std::to_wstring(ContentListAssetIndices.size()) + L" items. Double-click or use Place/Open.";
+        std::wstring action = L"Double-click previews. Place/Open runs the active command.";
+        if (ContentFilter == EContentFilter::Models)
+            action = L"Double-click previews model. Place adds it to the Level.";
+        else if (ContentFilter == EContentFilter::Textures)
+            action = L"Double-click previews texture. New Material can use the selected texture.";
+        else if (ContentFilter == EContentFilter::Materials)
+            action = L"Double-click previews and opens the material editor.";
+        else if (ContentFilter == EContentFilter::Levels)
+            action = L"Double-click opens the Level.";
+        const std::wstring hint = std::to_wstring(ContentListAssetIndices.size()) + L" items. " + action;
         SetWindowTextW(ContentHintLabel, hint.c_str());
     }
     UpdateStatusText();
@@ -1960,6 +1969,8 @@ void FEngine::UpdateStatusText()
         text += L"    Selected: " + Objects[(size_t)SelectedIndex].Name;
     else
         text += L"    Selected: none";
+    if (bAssetPreviewActive && !AssetPreviewLabel.empty())
+        text += L"    Preview: " + AssetPreviewLabel;
     SetWindowTextW(StatusLabel, text.c_str());
 }
 
@@ -2321,6 +2332,8 @@ void FEngine::UpdateWindowTitle(const wchar_t* baseTitle, const wchar_t* pathNam
 
 void FEngine::NewLevel()
 {
+    ClearAssetPreview();
+    SetPreviewBitmap(nullptr, false);
     Objects.clear();
     StaticMeshByAsset.clear();
     StaticMeshRadiusByAsset.clear();
@@ -2475,8 +2488,263 @@ void FEngine::PlaceSelectedContentAsset()
         object.Radius = found->second;
     Objects.push_back(object);
     SetSelectedIndex((int)Objects.size() - 1);
+    ClearAssetPreview();
     MarkLevelDirty();
     RefreshOutliner();
+}
+
+void FEngine::PreviewSelectedContentAsset()
+{
+    if (!ContentList)
+        return;
+    const int sel = (int)SendMessageW(ContentList, LB_GETCURSEL, 0, 0);
+    if (sel < 0 || sel >= (int)ContentListAssetIndices.size())
+        return;
+    const int assetIndex = ContentListAssetIndices[(size_t)sel];
+    if (assetIndex < 0 || assetIndex >= (int)ContentAssets.size())
+        return;
+    PreviewContentAsset(ContentAssets[(size_t)assetIndex]);
+}
+
+void FEngine::PreviewContentAsset(const editor::FAssetRecord& asset)
+{
+    if (asset.Kind == editor::EAssetKind::Level)
+    {
+        ClearAssetPreview();
+        SetPreviewBitmap(nullptr, false);
+        LoadLevelFromPath(asset.AbsolutePath);
+        return;
+    }
+    if (asset.Kind == editor::EAssetKind::Texture)
+    {
+        PreviewTextureAsset(asset);
+        return;
+    }
+    if (asset.Kind == editor::EAssetKind::Material)
+    {
+        LoadContentMaterials();
+        const int materialIndex = FindMaterialByAssetPath(asset.RelativePath);
+        if (materialIndex >= 0)
+            PreviewMaterialAsset(materialIndex, true);
+        return;
+    }
+    if (asset.Kind == editor::EAssetKind::Model)
+        PreviewModelAsset(asset);
+}
+
+void FEngine::PreviewTextureAsset(const editor::FAssetRecord& asset)
+{
+    ClearAssetPreview();
+    const int textureIndex = EnsureTextureLoaded(asset.RelativePath);
+    SelectTextureIndex(textureIndex);
+    if (PreviewTitleLabel)
+        SetWindowTextW(PreviewTitleLabel, L"Texture Preview");
+    if (ContentHintLabel)
+    {
+        const std::wstring hint = L"Previewing texture: " + asset.Name;
+        SetWindowTextW(ContentHintLabel, hint.c_str());
+    }
+    UpdateStatusText();
+}
+
+void FEngine::PreviewMaterialAsset(int materialIndex, bool openEditor)
+{
+    if (materialIndex < 0 || materialIndex >= (int)Materials.size())
+        return;
+
+    const FMaterialAsset& mat = Materials[(size_t)materialIndex];
+
+    using namespace DirectX;
+    XMVECTOR p = XMLoadFloat3(&Camera.Position);
+    p = XMVectorAdd(p, XMVectorScale(Camera.GetForwardVector(), 4.0f));
+    XMFLOAT3 pos{};
+    XMStoreFloat3(&pos, p);
+
+    FSceneObject object{};
+    object.Name = L"Preview: " + mat.Name;
+    object.Type = FSceneObject::EType::Sphere;
+    object.Position = pos;
+    object.Scale = { 1.0f, 1.0f, 1.0f };
+    object.Radius = 0.75f;
+    object.Albedo = mat.Albedo;
+    object.Metallic = mat.Metallic;
+    object.Roughness = mat.Roughness;
+    object.MaterialIndex = materialIndex;
+    object.MaterialPath = mat.AssetPath;
+    object.MaterialSRVBase = mat.SRVBase;
+    object.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseNormalTex = (mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseRoughnessTex = (mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseMetallicTex = (mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseAOTex = (mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
+
+    bAssetPreviewActive = true;
+    AssetPreviewObject = object;
+    AssetPreviewLabel = L"Material: " + mat.Name;
+    AssetPreviewMaterialIndex = materialIndex;
+
+    if (MaterialList)
+        SendMessageW(MaterialList, LB_SETCURSEL, (WPARAM)materialIndex, 0);
+    if (mat.AlbedoTexIndex >= 0)
+        SelectTextureIndex(mat.AlbedoTexIndex);
+    else
+        SetPreviewBitmap(CreateMaterialPreviewBitmap(mat.Albedo), true);
+    if (PreviewTitleLabel)
+        SetWindowTextW(PreviewTitleLabel, L"Material Preview");
+    if (ContentHintLabel)
+    {
+        const std::wstring hint = L"Previewing material: " + mat.Name;
+        SetWindowTextW(ContentHintLabel, hint.c_str());
+    }
+    if (openEditor)
+        OpenMaterialEditor(materialIndex);
+    UpdateStatusText();
+}
+
+void FEngine::PreviewModelAsset(const editor::FAssetRecord& asset)
+{
+    const int meshIndex = EnsureStaticMeshLoaded(asset.RelativePath);
+    if (meshIndex < 0)
+        return;
+
+    float sourceRadius = 1.0f;
+    if (const auto found = StaticMeshRadiusByAsset.find(asset.RelativePath); found != StaticMeshRadiusByAsset.end())
+        sourceRadius = std::max(found->second, 0.1f);
+    const float previewScale = Clamp(1.35f / sourceRadius, 0.02f, 8.0f);
+
+    using namespace DirectX;
+    XMVECTOR p = XMLoadFloat3(&Camera.Position);
+    p = XMVectorAdd(p, XMVectorScale(Camera.GetForwardVector(), 4.5f));
+    XMFLOAT3 pos{};
+    XMStoreFloat3(&pos, p);
+    pos.y = std::max(pos.y, 0.0f);
+
+    FSceneObject object{};
+    object.Name = L"Preview: " + asset.Name;
+    object.Type = FSceneObject::EType::StaticMesh;
+    object.AssetPath = asset.RelativePath;
+    object.StaticMeshIndex = meshIndex;
+    object.Position = pos;
+    object.Scale = { previewScale, previewScale, previewScale };
+    object.Radius = sourceRadius;
+    object.Albedo = { 0.74f, 0.74f, 0.70f };
+    object.Metallic = 0.0f;
+    object.Roughness = 0.55f;
+    object.MaterialIndex = -1;
+    object.MaterialSRVBase = 0;
+
+    bAssetPreviewActive = true;
+    AssetPreviewObject = object;
+    AssetPreviewLabel = L"Model: " + asset.Name;
+    AssetPreviewMaterialIndex = -1;
+    SetPreviewBitmap(nullptr, false);
+    if (PreviewTitleLabel)
+        SetWindowTextW(PreviewTitleLabel, L"Model Preview");
+    if (ContentHintLabel)
+    {
+        const std::wstring hint = L"Previewing model: " + asset.Name + L"    Use Place to add it to the Level.";
+        SetWindowTextW(ContentHintLabel, hint.c_str());
+    }
+    UpdateStatusText();
+}
+
+void FEngine::ClearAssetPreview()
+{
+    bAssetPreviewActive = false;
+    AssetPreviewObject = {};
+    AssetPreviewLabel.clear();
+    AssetPreviewMaterialIndex = -1;
+}
+
+void FEngine::FocusViewportOnObject(int objectIndex)
+{
+    if (objectIndex < 0 || objectIndex >= (int)Objects.size())
+        return;
+
+    using namespace DirectX;
+    const FSceneObject& object = Objects[(size_t)objectIndex];
+    const float radius = std::max(GetObjectPickRadius(object), 0.35f);
+    const float distance = Clamp(radius * 3.25f, 2.0f, 55.0f);
+    const XMVECTOR target = XMLoadFloat3(&object.Position);
+    const XMVECTOR forward = Camera.GetForwardVector();
+    const XMVECTOR cameraPos = XMVectorSubtract(target, XMVectorScale(forward, distance));
+    XMStoreFloat3(&Camera.Position, cameraPos);
+
+    if (ViewportHwnd)
+        SetFocus(ViewportHwnd);
+    if (ContentHintLabel)
+    {
+        const std::wstring hint = L"Focused viewport on: " + object.Name;
+        SetWindowTextW(ContentHintLabel, hint.c_str());
+    }
+    UpdateStatusText();
+}
+
+void FEngine::SetPreviewBitmap(HBITMAP bitmap, bool takeOwnership)
+{
+    if (GeneratedPreviewBitmap)
+    {
+        DeleteObject(GeneratedPreviewBitmap);
+        GeneratedPreviewBitmap = nullptr;
+    }
+    if (takeOwnership)
+        GeneratedPreviewBitmap = bitmap;
+    if (TexturePreview)
+    {
+        SendMessageW(TexturePreview, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)bitmap);
+        InvalidateRect(TexturePreview, nullptr, TRUE);
+    }
+}
+
+void FEngine::SelectTextureIndex(int textureIndex)
+{
+    SelectedTextureIndex = (textureIndex >= 0 && textureIndex < (int)Textures.size()) ? textureIndex : -1;
+    if (TextureList)
+        SendMessageW(TextureList, LB_SETCURSEL, (SelectedTextureIndex >= 0) ? (WPARAM)SelectedTextureIndex : (WPARAM)-1, 0);
+    HBITMAP bmp = nullptr;
+    if (SelectedTextureIndex >= 0)
+        bmp = Textures[(size_t)SelectedTextureIndex].Preview;
+    SetPreviewBitmap(bmp, false);
+    if (PreviewTitleLabel)
+        SetWindowTextW(PreviewTitleLabel, L"Texture Preview");
+}
+
+HBITMAP FEngine::CreateMaterialPreviewBitmap(const DirectX::XMFLOAT3& color) const
+{
+    constexpr int w = 160;
+    constexpr int h = 120;
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HDC dc = GetDC(nullptr);
+    HBITMAP bitmap = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, dc);
+    if (!bitmap || !bits)
+        return bitmap;
+
+    const DirectX::XMFLOAT3 c = Clamp01(color);
+    unsigned char* pixels = static_cast<unsigned char*>(bits);
+    for (int y = 0; y < h; ++y)
+    {
+        for (int x = 0; x < w; ++x)
+        {
+            const float u = (float)x / (float)(w - 1);
+            const float v = (float)y / (float)(h - 1);
+            const float shade = 0.55f + 0.35f * u + 0.10f * (1.0f - v);
+            const int offset = (y * w + x) * 4;
+            pixels[offset + 0] = (unsigned char)ClampI((int)(c.z * shade * 255.0f), 0, 255);
+            pixels[offset + 1] = (unsigned char)ClampI((int)(c.y * shade * 255.0f), 0, 255);
+            pixels[offset + 2] = (unsigned char)ClampI((int)(c.x * shade * 255.0f), 0, 255);
+            pixels[offset + 3] = 255;
+        }
+    }
+    return bitmap;
 }
 
 int FEngine::EnsureStaticMeshLoaded(const std::wstring& relativePath)
@@ -2703,6 +2971,8 @@ editor::FLevelFile FEngine::BuildLevelFile() const
 
 void FEngine::ApplyLevelFile(const editor::FLevelFile& level, const std::filesystem::path& path)
 {
+    ClearAssetPreview();
+    SetPreviewBitmap(nullptr, false);
     Objects.clear();
     StaticMeshByAsset.clear();
     StaticMeshRadiusByAsset.clear();
@@ -3034,6 +3304,8 @@ void FEngine::ApplyMaterialEditorChanges()
         }
     }
     SaveMaterialAsset(EditingMaterialIndex);
+    if (bAssetPreviewActive && AssetPreviewMaterialIndex == EditingMaterialIndex)
+        PreviewMaterialAsset(EditingMaterialIndex, false);
     MarkLevelDirty();
 }
 
@@ -4647,6 +4919,15 @@ void FEngine::Run(HINSTANCE hInstance)
         }
 
         // 调用渲染器绘制一帧。
+        std::vector<FSceneObject> previewObjects;
+        const std::vector<FSceneObject>* renderObjects = &Objects;
+        if (bAssetPreviewActive)
+        {
+            previewObjects = Objects;
+            previewObjects.push_back(AssetPreviewObject);
+            renderObjects = &previewObjects;
+        }
+
         Renderer.Render(
             RHI,
             Camera,
@@ -4655,7 +4936,7 @@ void FEngine::Run(HINSTANCE hInstance)
             bEnableLumen,
             bEnableLumenSWRT,
             bEnableLumenHWRT,
-            Objects,
+            *renderObjects,
             SelectedIndex,
             GizmoMode == EGizmoMode::Scale,
             lightDirWs,
@@ -4684,6 +4965,11 @@ void FEngine::Run(HINSTANCE hInstance)
     {
         if (t.Preview) DeleteObject(t.Preview);
         t.Preview = nullptr;
+    }
+    if (GeneratedPreviewBitmap)
+    {
+        DeleteObject(GeneratedPreviewBitmap);
+        GeneratedPreviewBitmap = nullptr;
     }
     if (UIFont)
     {
