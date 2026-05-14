@@ -87,15 +87,15 @@ DirectX::XMFLOAT3 ComputeFaceNormal(const DirectX::XMFLOAT3& a, const DirectX::X
     return out;
 }
 
-FVertex MakeVertex(const DirectX::XMFLOAT3& p, const DirectX::XMFLOAT3& n, const DirectX::XMFLOAT2& uv)
+FVertex MakeVertex(const DirectX::XMFLOAT3& p, const DirectX::XMFLOAT3& n, const DirectX::XMFLOAT2& uv, const DirectX::XMFLOAT3* color = nullptr)
 {
     FVertex v{};
     v.Pos[0] = p.x;
     v.Pos[1] = p.y;
     v.Pos[2] = p.z;
-    v.Col[0] = 0.5f + 0.5f * n.x;
-    v.Col[1] = 0.5f + 0.5f * n.y;
-    v.Col[2] = 0.5f + 0.5f * n.z;
+    v.Col[0] = color ? std::clamp(color->x, 0.0f, 1.0f) : 0.5f + 0.5f * n.x;
+    v.Col[1] = color ? std::clamp(color->y, 0.0f, 1.0f) : 0.5f + 0.5f * n.y;
+    v.Col[2] = color ? std::clamp(color->z, 0.0f, 1.0f) : 0.5f + 0.5f * n.z;
     v.Nrm[0] = n.x;
     v.Nrm[1] = n.y;
     v.Nrm[2] = n.z;
@@ -115,6 +115,7 @@ bool LoadObjMesh(const std::filesystem::path& path, FObjMeshData& outMesh, std::
     }
 
     std::vector<DirectX::XMFLOAT3> positions;
+    std::vector<DirectX::XMFLOAT3> colors;
     std::vector<DirectX::XMFLOAT2> uvs;
     std::vector<DirectX::XMFLOAT3> normals;
     std::unordered_map<FObjIndex, uint32, FObjIndexHash> dedup;
@@ -138,9 +139,12 @@ bool LoadObjMesh(const std::filesystem::path& path, FObjMeshData& outMesh, std::
         const DirectX::XMFLOAT3 p = positions[(size_t)idx.Pos];
         const DirectX::XMFLOAT2 uv = (idx.Tex >= 0 && idx.Tex < (int)uvs.size()) ? uvs[(size_t)idx.Tex] : DirectX::XMFLOAT2{ 0.0f, 0.0f };
         const DirectX::XMFLOAT3 n = (idx.Nrm >= 0 && idx.Nrm < (int)normals.size()) ? normals[(size_t)idx.Nrm] : fallbackNormal;
+        const DirectX::XMFLOAT3* color = nullptr;
+        if (idx.Pos >= 0 && idx.Pos < (int)colors.size() && colors[(size_t)idx.Pos].x >= 0.0f)
+            color = &colors[(size_t)idx.Pos];
 
         const uint32 newIndex = (uint32)outMesh.Vertices.size();
-        outMesh.Vertices.push_back(MakeVertex(p, n, uv));
+        outMesh.Vertices.push_back(MakeVertex(p, n, uv, color));
         dedup.emplace(idx, newIndex);
         return newIndex;
     };
@@ -159,6 +163,9 @@ bool LoadObjMesh(const std::filesystem::path& path, FObjMeshData& outMesh, std::
             DirectX::XMFLOAT3 p{};
             ss >> p.x >> p.y >> p.z;
             positions.push_back(p);
+            DirectX::XMFLOAT3 color{ -1.0f, -1.0f, -1.0f };
+            ss >> color.x >> color.y >> color.z;
+            colors.push_back(color);
         }
         else if (tag == "vt")
         {

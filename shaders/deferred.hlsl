@@ -22,7 +22,8 @@ cbuffer SceneCB : register(b0)
     float  g_useAOTex;
     float  g_shadingMode;
     float  g_unlitIntensity;
-    float2 _pad2;
+    float  g_rockNormalStrength;
+    float  g_rockBaseColorBoost;
 };
 
 Texture2D g_albedoTex : register(t0);
@@ -58,7 +59,7 @@ struct GBufferOut
  */
 GBufferOut PSGBuffer(PSIn i)
 {
-    FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv);
+    FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv, i.col);
     float3 N = material.Normal;
 
     // Normal map (tangent basis approximated from world up)

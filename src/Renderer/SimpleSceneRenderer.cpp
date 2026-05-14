@@ -5,12 +5,14 @@
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <d3d12sdklayers.h>
 
 #include "Core/Diagnostics.h"
 #include "Core/Win32.h"
+#include "RenderDoc/DdsLoader.h"
 #include "Renderer/RenderGraph.h"
 #include "Renderer/SceneRenderer.h"
 
@@ -131,6 +133,59 @@ std::string NarrowUtf8(const std::wstring& s)
     std::string out(needed, '\0');
     WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), needed, nullptr, nullptr);
     return out;
+}
+
+D3D12_RESOURCE_DESC MakeUploadBufferDesc(UINT64 byteSize)
+{
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = (std::max<UINT64>)(1, byteSize);
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    return desc;
+}
+
+D3D12_RESOURCE_DESC MakeDdsTextureDesc(const rdcimport::FDdsImage& image)
+{
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension = image.Dimension;
+    desc.Width = image.Width;
+    desc.Height = image.Height;
+    desc.DepthOrArraySize = static_cast<UINT16>(
+        image.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? image.Depth : image.ArraySize);
+    desc.MipLevels = static_cast<UINT16>(image.MipCount);
+    desc.Format = image.Format;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    return desc;
+}
+
+D3D12_SHADER_RESOURCE_VIEW_DESC MakeDdsSRVDesc(const rdcimport::FDdsImage& image)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format = image.Format;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    if (image.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+    {
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+        srv.Texture3D.MipLevels = image.MipCount;
+    }
+    else if (image.ArraySize > 1)
+    {
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+        srv.Texture2DArray.ArraySize = image.ArraySize;
+        srv.Texture2DArray.MipLevels = image.MipCount;
+    }
+    else
+    {
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Texture2D.MipLevels = image.MipCount;
+    }
+    return srv;
 }
 
 class FShaderInclude final : public ID3DInclude
@@ -398,6 +453,147 @@ int FSimpleSceneRenderer::CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint3
     device->CreateShaderResourceView(tex.Resource.Get(), &srv, cpu);
 
     return slot;
+}
+
+int FSimpleSceneRenderer::CreateTextureDDS(FD3D12RHI& rhi, const std::filesystem::path& path)
+{
+    if (!SRVHeap || path.empty())
+        return 0;
+    if ((uint32)Textures.size() >= 512)
+        return 0;
+
+    ID3D12Device* device = rhi.GetDevice();
+    if (!device)
+        return 0;
+
+    try
+    {
+        const rdcimport::FDdsImage image = rdcimport::LoadDdsImage(path);
+        if (image.Format == DXGI_FORMAT_UNKNOWN || image.Subresources.empty())
+            return 0;
+
+        const D3D12_RESOURCE_DESC desc = MakeDdsTextureDesc(image);
+        FTextureGPU tex{};
+        tex.Width = image.Width;
+        tex.Height = image.Height;
+
+        D3D12_HEAP_PROPERTIES heapDefault{};
+        heapDefault.Type = D3D12_HEAP_TYPE_DEFAULT;
+        ThrowIfFailed(device->CreateCommittedResource(
+            &heapDefault,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&tex.Resource)), "CreateCommittedResource DDS texture failed");
+
+        const UINT subresourceCount = static_cast<UINT>(image.Subresources.size());
+        std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> layouts(subresourceCount);
+        std::vector<UINT> rowCounts(subresourceCount);
+        std::vector<UINT64> rowSizes(subresourceCount);
+        UINT64 uploadSize = 0;
+        device->GetCopyableFootprints(
+            &desc,
+            0,
+            subresourceCount,
+            0,
+            layouts.data(),
+            rowCounts.data(),
+            rowSizes.data(),
+            &uploadSize);
+
+        ComPtr<ID3D12Resource> upload;
+        D3D12_HEAP_PROPERTIES heapUpload{};
+        heapUpload.Type = D3D12_HEAP_TYPE_UPLOAD;
+        const D3D12_RESOURCE_DESC uploadDesc = MakeUploadBufferDesc(uploadSize);
+        ThrowIfFailed(device->CreateCommittedResource(
+            &heapUpload,
+            D3D12_HEAP_FLAG_NONE,
+            &uploadDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&upload)), "CreateCommittedResource DDS upload failed");
+
+        uint8* mapped = nullptr;
+        D3D12_RANGE rr{ 0, 0 };
+        ThrowIfFailed(upload->Map(0, &rr, reinterpret_cast<void**>(&mapped)), "DDS upload map failed");
+        for (UINT i = 0; i < subresourceCount; ++i)
+        {
+            const rdcimport::FDdsSubresource& src = image.Subresources[i];
+            const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout = layouts[i];
+            uint8* dstSliceBase = mapped + layout.Offset;
+            const uint8* srcSliceBase = reinterpret_cast<const uint8*>(src.Data.data());
+            const UINT depth = (std::max)(1u, src.Depth);
+            const UINT rowCount = rowCounts[i];
+            const UINT64 rowSize = rowSizes[i];
+            const UINT64 dstSlicePitch = static_cast<UINT64>(layout.Footprint.RowPitch) * rowCount;
+            for (UINT z = 0; z < depth; ++z)
+            {
+                uint8* dstRow = dstSliceBase + z * dstSlicePitch;
+                const uint8* srcRow = srcSliceBase + static_cast<size_t>(z) * src.SlicePitch;
+                for (UINT y = 0; y < rowCount; ++y)
+                {
+                    std::memcpy(
+                        dstRow + static_cast<size_t>(y) * layout.Footprint.RowPitch,
+                        srcRow + static_cast<size_t>(y) * src.RowPitch,
+                        static_cast<size_t>(rowSize));
+                }
+            }
+        }
+        upload->Unmap(0, nullptr);
+
+        struct FUploadCtx
+        {
+            ID3D12Resource* Texture = nullptr;
+            ID3D12Resource* Upload = nullptr;
+            const std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT>* Layouts = nullptr;
+            UINT SubresourceCount = 0;
+        } ctx;
+        ctx.Texture = tex.Resource.Get();
+        ctx.Upload = upload.Get();
+        ctx.Layouts = &layouts;
+        ctx.SubresourceCount = subresourceCount;
+
+        rhi.ExecuteImmediate([](ID3D12GraphicsCommandList* cmd, void* user)
+        {
+            auto* c = reinterpret_cast<FUploadCtx*>(user);
+            for (UINT i = 0; i < c->SubresourceCount; ++i)
+            {
+                D3D12_TEXTURE_COPY_LOCATION dst{};
+                dst.pResource = c->Texture;
+                dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                dst.SubresourceIndex = i;
+
+                D3D12_TEXTURE_COPY_LOCATION src{};
+                src.pResource = c->Upload;
+                src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                src.PlacedFootprint = (*c->Layouts)[i];
+                cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+            }
+
+            D3D12_RESOURCE_BARRIER barrier{};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = c->Texture;
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmd->ResourceBarrier(1, &barrier);
+        }, &ctx);
+
+        const int slot = (int)Textures.size();
+        Textures.push_back(std::move(tex));
+
+        const D3D12_SHADER_RESOURCE_VIEW_DESC srv = MakeDdsSRVDesc(image);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = SRVHeap->GetCPUDescriptorHandleForHeapStart();
+        cpu.ptr += SIZE_T(slot) * SRVDescriptorSize;
+        device->CreateShaderResourceView(Textures.back().Resource.Get(), &srv, cpu);
+        return slot;
+    }
+    catch (const std::exception&)
+    {
+        DebugOutput(L"DDS load failed.");
+        return 0;
+    }
 }
 
 int FSimpleSceneRenderer::CreateStaticMesh(FD3D12RHI& rhi, const std::vector<FVertex>& vertices, const std::vector<uint32>& indices)
@@ -2297,7 +2493,12 @@ void FSimpleSceneRenderer::Render(
     const FSkyAtmosphereSettings& sky,
     int leftInsetPx,
     const DirectX::XMFLOAT3* previewPos,
-    FSceneObject::EType previewType)
+    FSceneObject::EType previewType,
+    int viewportX,
+    int viewportY,
+    int viewportWidth,
+    int viewportHeight,
+    std::function<void(ID3D12GraphicsCommandList*)> postSceneUiPass)
 {
     // 构建视图族参数。
     FSceneViewFamily viewFamily{};
@@ -2309,6 +2510,11 @@ void FSimpleSceneRenderer::Render(
     viewFamily.SunIntensity = sunIntensity;
     viewFamily.Sky = &sky;
     viewFamily.LeftInsetPx = leftInsetPx;
+    viewFamily.ViewportX = viewportX;
+    viewFamily.ViewportY = viewportY;
+    viewFamily.ViewportWidth = viewportWidth;
+    viewFamily.ViewportHeight = viewportHeight;
+    viewFamily.PostSceneUiPass = std::move(postSceneUiPass);
 
     // 构建单视图参数。
     FSceneView view{};

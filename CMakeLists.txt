@@ -12,6 +12,29 @@ add_library(renderdoc_capture STATIC
     src/RenderDoc/CaptureRockRenderer.cpp
 )
 
+add_library(editor_imgui STATIC
+    third_party/imgui/imgui.cpp
+    third_party/imgui/imgui_demo.cpp
+    third_party/imgui/imgui_draw.cpp
+    third_party/imgui/imgui_tables.cpp
+    third_party/imgui/imgui_widgets.cpp
+    third_party/imgui/backends/imgui_impl_win32.cpp
+    third_party/imgui/backends/imgui_impl_dx12.cpp
+    third_party/ImGuizmo/src/ImGuizmo.cpp
+)
+
+target_include_directories(editor_imgui PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuizmo/src
+)
+
+target_compile_definitions(editor_imgui PUBLIC
+    IMGUI_DEFINE_MATH_OPERATORS
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
 target_include_directories(renderdoc_capture PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
@@ -59,6 +82,7 @@ target_compile_definitions(dx12_hello PRIVATE
 # D3D12 + DXGI + Shader compiler (D3DCompileFromFile uses D3DCompiler_47.dll)
 target_link_libraries(dx12_hello PRIVATE
     renderdoc_capture
+    editor_imgui
     d3d12
     dxgi
     d3dcompiler
@@ -70,7 +94,9 @@ target_link_libraries(dx12_hello PRIVATE
 if (MSVC)
     target_compile_options(dx12_hello PRIVATE /W4 /permissive- /utf-8 /FS)
     target_compile_options(renderdoc_capture PRIVATE /W4 /permissive- /utf-8 /FS)
+    target_compile_options(editor_imgui PRIVATE /W3 /permissive- /utf-8 /FS)
 else()
     target_compile_options(dx12_hello PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(renderdoc_capture PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(editor_imgui PRIVATE -Wall -Wextra)
 endif()

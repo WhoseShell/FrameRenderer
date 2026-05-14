@@ -35,6 +35,8 @@ struct FMaterialFile
     float Metallic = 0.0f;
     float Roughness = 0.5f;
     float Intensity = 1.0f;
+    float NormalStrength = 0.18f;
+    float BaseColorBoost = 1.25f;
     std::wstring AlbedoTexture;
     std::wstring NormalTexture;
     std::wstring RoughnessTexture;

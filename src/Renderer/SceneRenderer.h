@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <vector>
 
 #include <DirectXMath.h>
@@ -7,7 +8,7 @@
 #include "RHI/D3D12RHI.h"
 #include "Scene/SceneTypes.h"
 
-class FCamera;
+struct FCamera;
 class FRenderGraphBuilder;
 class FSimpleSceneRenderer;
 struct FSkyAtmosphereSettings;
@@ -22,6 +23,11 @@ struct FSceneViewFamily
     float SunIntensity = 1.0f;
     const FSkyAtmosphereSettings* Sky = nullptr;
     int LeftInsetPx = 0;
+    int ViewportX = 0;
+    int ViewportY = 0;
+    int ViewportWidth = 0;
+    int ViewportHeight = 0;
+    std::function<void(ID3D12GraphicsCommandList*)> PostSceneUiPass;
 };
 
 struct FSceneView

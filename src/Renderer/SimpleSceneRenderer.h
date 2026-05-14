@@ -1,5 +1,7 @@
 #pragma once
 
+#include <filesystem>
+#include <functional>
 #include <string>
 #include <wrl.h>
 #include <d3d12.h>
@@ -97,6 +99,7 @@ public:
      * @note 阶段：资源导入/上传阶段。
      */
     int CreateTextureRGBA8(FD3D12RHI& rhi, uint32 width, uint32 height, const uint8* rgba);
+    int CreateTextureDDS(FD3D12RHI& rhi, const std::filesystem::path& path);
     int CreateStaticMesh(FD3D12RHI& rhi, const std::vector<FVertex>& vertices, const std::vector<uint32>& indices);
     /**
      * @brief 分配一个材质 SRV 描述符块（5 个连续槽位）。
@@ -157,7 +160,12 @@ public:
         const FSkyAtmosphereSettings& sky,
         int leftInsetPx,
         const DirectX::XMFLOAT3* previewPos,
-        FSceneObject::EType previewType);
+        FSceneObject::EType previewType,
+        int viewportX = 0,
+        int viewportY = 0,
+        int viewportWidth = 0,
+        int viewportHeight = 0,
+        std::function<void(ID3D12GraphicsCommandList*)> postSceneUiPass = {});
 
 private:
     friend class FSceneRenderer;
@@ -185,7 +193,8 @@ private:
         float UseAOTex = 0.0f;
         float ShadingMode = 0.0f;
         float UnlitIntensity = 1.0f;
-        DirectX::XMFLOAT2 _pad2{};
+        float RockNormalStrength = 0.18f;
+        float RockBaseColorBoost = 1.25f;
     };
 
     static uint32 Align256(uint32 size);
@@ -209,7 +218,7 @@ private:
 
     void UpdateSkyCB(const DirectX::XMMATRIX& invViewProj, const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs,
                      float sunIntensity, const FSkyAtmosphereSettings& sky, uint32 frameIndex);
-    void UpdateTonemapCB(bool enableTonemap, uint32 frameIndex);
+    void UpdateTonemapCB(bool enableTonemap, uint32 frameIndex, float targetWidth, float targetHeight);
     void UpdateDeferredCB(const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs, float sunIntensity, uint32 frameIndex);
     void UpdateShadowCB(const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs, uint32 frameIndex);
     void UpdateLumenCB(FD3D12RHI& rhi, bool bUseLumen, const DirectX::XMFLOAT4X4& curViewProj, const DirectX::XMFLOAT3& cameraPosWs,
@@ -398,6 +407,10 @@ private:
         float Exposure = 1.0f;
         float Gamma = 2.2f;
         float _pad0 = 0.0f;
+        float TargetWidth = 1.0f;
+        float TargetHeight = 1.0f;
+        float InvTargetWidth = 1.0f;
+        float InvTargetHeight = 1.0f;
     };
     ComPtr<ID3D12Resource> ConstantBufferTonemap[FD3D12RHI::kFrameCount];
     uint8* CBMappedTonemap[FD3D12RHI::kFrameCount] = {};

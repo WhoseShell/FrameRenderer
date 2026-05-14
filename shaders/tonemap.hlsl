@@ -4,6 +4,10 @@ cbuffer TonemapCB : register(b0)
     float g_exposure;      // simple exposure multiplier
     float g_gamma;         // display gamma, e.g. 2.2
     float _pad0;
+    float g_targetWidth;
+    float g_targetHeight;
+    float g_invTargetWidth;
+    float g_invTargetHeight;
 };
 
 Texture2D g_hdrTex : register(t0);
@@ -52,7 +56,8 @@ float3 Reinhard(float3 x)
 float4 PSMain(VSOut i) : SV_Target
 {
     // 采样 HDR 颜色并应用曝光。
-    float3 hdr = g_hdrTex.Sample(g_samp, i.uv).rgb;
+    float2 sourceUv = saturate(i.posH.xy * float2(g_invTargetWidth, g_invTargetHeight));
+    float3 hdr = g_hdrTex.Sample(g_samp, sourceUv).rgb;
     hdr = max(hdr, float3(0.0, 0.0, 0.0)) * max(g_exposure, 0.0);
 
     float3 ldr = hdr;

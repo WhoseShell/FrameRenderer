@@ -96,6 +96,8 @@ std::wstring NormalizeShadingMode(std::wstring mode)
     std::transform(mode.begin(), mode.end(), mode.begin(), [](wchar_t c) { return (wchar_t)towlower(c); });
     if (mode == L"unlit")
         return L"Unlit";
+    if (mode == L"rdr2rock" || mode == L"rdr2 rock" || mode == L"rock")
+        return L"Rdr2Rock";
     return L"PbrLit";
 }
 
@@ -237,7 +239,7 @@ std::vector<FAssetRecord> ScanContent(const FContentLayout& layout)
     };
 
     scanDir(layout.Models, EAssetKind::Model, { L".obj" });
-    scanDir(layout.Textures, EAssetKind::Texture, { L".png", L".jpg", L".jpeg", L".tga" });
+    scanDir(layout.Textures, EAssetKind::Texture, { L".png", L".jpg", L".jpeg", L".tga", L".dds" });
     scanDir(layout.Materials, EAssetKind::Material, { L".material.json" });
     scanDir(layout.Levels, EAssetKind::Level, { L".level.json" });
 
@@ -266,6 +268,14 @@ bool SaveMaterialFile(const std::filesystem::path& path, const FMaterialFile& ma
         os << "    \"Color\": " << JsonFloat3(material.Albedo) << ",\n";
         os << "    \"Intensity\": " << material.Intensity << "\n";
     }
+    else if (mode == L"Rdr2Rock")
+    {
+        os << "    \"BaseColor\": " << JsonFloat3(material.Albedo) << ",\n";
+        os << "    \"Metallic\": " << material.Metallic << ",\n";
+        os << "    \"Roughness\": " << material.Roughness << ",\n";
+        os << "    \"NormalStrength\": " << material.NormalStrength << ",\n";
+        os << "    \"BaseColorBoost\": " << material.BaseColorBoost << "\n";
+    }
     else
     {
         os << "    \"BaseColor\": " << JsonFloat3(material.Albedo) << ",\n";
@@ -277,6 +287,14 @@ bool SaveMaterialFile(const std::filesystem::path& path, const FMaterialFile& ma
     if (mode == L"Unlit")
     {
         os << "    \"Color\": \"" << JsonEscape(material.AlbedoTexture) << "\"\n";
+    }
+    else if (mode == L"Rdr2Rock")
+    {
+        os << "    \"BaseColor\": \"" << JsonEscape(material.AlbedoTexture) << "\",\n";
+        os << "    \"Normal\": \"" << JsonEscape(material.NormalTexture) << "\",\n";
+        os << "    \"MaskA\": \"" << JsonEscape(material.RoughnessTexture) << "\",\n";
+        os << "    \"MaskB\": \"" << JsonEscape(material.MetallicTexture) << "\",\n";
+        os << "    \"Aux\": \"" << JsonEscape(material.AOTexture) << "\"\n";
     }
     else
     {
@@ -311,6 +329,14 @@ bool LoadMaterialFile(const std::filesystem::path& path, FMaterialFile& material
                 material.Albedo = GetFloat3(*params, "Color", material.Albedo);
                 material.Intensity = GetFloat(*params, "Intensity", material.Intensity);
             }
+            else if (material.ShadingMode == L"Rdr2Rock")
+            {
+                material.Albedo = GetFloat3(*params, "BaseColor", material.Albedo);
+                material.Metallic = GetFloat(*params, "Metallic", material.Metallic);
+                material.Roughness = GetFloat(*params, "Roughness", material.Roughness);
+                material.NormalStrength = GetFloat(*params, "NormalStrength", material.NormalStrength);
+                material.BaseColorBoost = GetFloat(*params, "BaseColorBoost", material.BaseColorBoost);
+            }
             else
             {
                 material.Albedo = GetFloat3(*params, "BaseColor", material.Albedo);
@@ -328,9 +354,9 @@ bool LoadMaterialFile(const std::filesystem::path& path, FMaterialFile& material
         {
             material.AlbedoTexture = GetString(*tex, "BaseColor", GetString(*tex, "Color", GetString(*tex, "albedo")));
             material.NormalTexture = GetString(*tex, "Normal", GetString(*tex, "normal"));
-            material.RoughnessTexture = GetString(*tex, "Roughness", GetString(*tex, "roughness"));
-            material.MetallicTexture = GetString(*tex, "Metallic", GetString(*tex, "metallic"));
-            material.AOTexture = GetString(*tex, "AO", GetString(*tex, "ao"));
+            material.RoughnessTexture = GetString(*tex, "MaskA", GetString(*tex, "Roughness", GetString(*tex, "roughness")));
+            material.MetallicTexture = GetString(*tex, "MaskB", GetString(*tex, "Metallic", GetString(*tex, "metallic")));
+            material.AOTexture = GetString(*tex, "Aux", GetString(*tex, "AO", GetString(*tex, "ao")));
         }
     }
     catch (const std::exception& e)

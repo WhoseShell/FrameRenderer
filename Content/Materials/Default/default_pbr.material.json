@@ -1,0 +1,18 @@
+{
+  "type": "Material",
+  "version": 2,
+  "name": "Default PBR",
+  "shadingMode": "PbrLit",
+  "params": {
+    "BaseColor": [0.750000, 0.750000, 0.750000],
+    "Metallic": 0.000000,
+    "Roughness": 0.550000
+  },
+  "textures": {
+    "BaseColor": "",
+    "Normal": "",
+    "Roughness": "",
+    "Metallic": "",
+    "AO": ""
+  }
+}

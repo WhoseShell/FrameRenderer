@@ -58,7 +58,9 @@ void FSceneRenderer::Render()
     {
         using namespace DirectX;
         // 计算视图/投影矩阵与逆矩阵。
-        const float aspect = (rhi.GetHeight() == 0) ? 1.0f : (float)rhi.GetWidth() / (float)rhi.GetHeight();
+        const uint32 viewW = (ViewFamily.ViewportWidth > 0) ? (uint32)ViewFamily.ViewportWidth : rhi.GetWidth();
+        const uint32 viewH = (ViewFamily.ViewportHeight > 0) ? (uint32)ViewFamily.ViewportHeight : rhi.GetHeight();
+        const float aspect = (viewH == 0) ? 1.0f : (float)viewW / (float)viewH;
 
         const XMMATRIX view = View.Camera->GetViewMatrix();
         const XMMATRIX proj = XMMatrixPerspectiveFovLH(XM_PIDIV4, aspect, 0.1f, 100.0f);
@@ -100,8 +102,11 @@ void FSceneRenderer::Render()
             cb.UseRoughnessTex = obj.UseRoughnessTex;
             cb.UseMetallicTex = obj.UseMetallicTex;
             cb.UseAOTex = obj.UseAOTex;
-            cb.ShadingMode = (obj.MaterialShadingMode == EMaterialShadingMode::Unlit) ? 1.0f : 0.0f;
+            cb.ShadingMode = (obj.MaterialShadingMode == EMaterialShadingMode::Rdr2Rock) ? 2.0f :
+                ((obj.MaterialShadingMode == EMaterialShadingMode::Unlit) ? 1.0f : 0.0f);
             cb.UnlitIntensity = obj.UnlitIntensity;
+            cb.RockNormalStrength = obj.RockNormalStrength;
+            cb.RockBaseColorBoost = obj.RockBaseColorBoost;
 
             std::memcpy(Renderer.CBMappedObjects[Frame.FrameIndex] + (size_t)Renderer.CBSize * i, &cb, sizeof(cb));
         }
@@ -125,6 +130,8 @@ void FSceneRenderer::Render()
             cb.Roughness = 0.6f;
             cb.ShadingMode = 0.0f;
             cb.UnlitIntensity = 1.0f;
+            cb.RockNormalStrength = 0.18f;
+            cb.RockBaseColorBoost = 1.25f;
             std::memcpy(Renderer.CBMappedObjects[Frame.FrameIndex] + (size_t)Renderer.CBSize * previewSlot, &cb, sizeof(cb));
         }
 
@@ -148,8 +155,20 @@ void FSceneRenderer::Render()
         Renderer.UpdateShadowCB(View.Camera->Position, View.LightDirWs, Frame.FrameIndex);
     }
 
+    // 计算视口与裁剪区域（考虑左侧 UI）。
+    const int viewportX = (ViewFamily.ViewportWidth > 0) ? std::max(0, ViewFamily.ViewportX) : std::max(0, ViewFamily.LeftInsetPx);
+    const int viewportY = (ViewFamily.ViewportHeight > 0) ? std::max(0, ViewFamily.ViewportY) : 0;
+    const int viewportW = (ViewFamily.ViewportWidth > 0) ? std::max(1, ViewFamily.ViewportWidth) : std::max(1, (int)rhi.GetWidth() - viewportX);
+    const int viewportH = (ViewFamily.ViewportHeight > 0) ? std::max(1, ViewFamily.ViewportHeight) : std::max(1, (int)rhi.GetHeight() - viewportY);
+    const LONG scLeft = (LONG)std::clamp(viewportX, 0, (int)rhi.GetWidth());
+    const LONG scTop = (LONG)std::clamp(viewportY, 0, (int)rhi.GetHeight());
+    const LONG scRight = (LONG)std::clamp(viewportX + viewportW, 0, (int)rhi.GetWidth());
+    const LONG scBottom = (LONG)std::clamp(viewportY + viewportH, 0, (int)rhi.GetHeight());
+    ViewInfo.Viewport = { (float)scLeft, (float)scTop, (float)std::max<LONG>(1, scRight - scLeft), (float)std::max<LONG>(1, scBottom - scTop), 0.0f, 1.0f };
+    ViewInfo.Scissor = { scLeft, scTop, scRight, scBottom };
+
     // 后处理与延迟渲染常量缓冲。
-    Renderer.UpdateTonemapCB(ViewFamily.bEnableTonemap, Frame.FrameIndex);
+    Renderer.UpdateTonemapCB(ViewFamily.bEnableTonemap, Frame.FrameIndex, (float)rhi.GetWidth(), (float)rhi.GetHeight());
 
     if (bDeferred)
         Renderer.UpdateDeferredCB(View.Camera->Position, View.LightDirWs, ViewFamily.SunIntensity, Frame.FrameIndex);
@@ -171,12 +190,6 @@ void FSceneRenderer::Render()
     SwrtObjectCount = Renderer.UpdateSWRTGICBAndObjects(
         rhi, bUseLumenSWRT, ViewInfo.ViewProj, View.Camera->Position, View.LightDirWs, ViewFamily.SunIntensity, View.TimeSeconds,
         Frame.FrameIndex, objects, Inputs.PreviewPos, Inputs.PreviewType);
-
-    // 计算视口与裁剪区域（考虑左侧 UI）。
-    const float x0 = (float)std::max(0, ViewFamily.LeftInsetPx);
-    const float w3d = (float)rhi.GetWidth() - x0;
-    ViewInfo.Viewport = { x0, 0.0f, w3d, (float)rhi.GetHeight(), 0.0f, 1.0f };
-    ViewInfo.Scissor = { (LONG)x0, 0, (LONG)rhi.GetWidth(), (LONG)rhi.GetHeight() };
 
     // 构建渲染图。
     FRenderGraphBuilder graph(cmd);
@@ -348,6 +361,13 @@ void FSceneRenderer::Render()
     // 后处理：HDR->SRV + Tonemap。
     Renderer.AddHDRToSRVPass(graph);
     Renderer.AddTonemapPass(graph, Frame, ViewInfo.Viewport, ViewInfo.Scissor);
+    if (ViewFamily.PostSceneUiPass)
+    {
+        graph.AddPass("ImGuiEditor", [this](ID3D12GraphicsCommandList* cl)
+        {
+            ViewFamily.PostSceneUiPass(cl);
+        });
+    }
 
     graph.Execute();
     rhi.EndFrame();

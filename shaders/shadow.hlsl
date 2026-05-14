@@ -19,7 +19,8 @@ cbuffer SceneCB : register(b0)
     float  g_useAOTex;
     float  g_shadingMode;
     float  g_unlitIntensity;
-    float2 _pad2;
+    float  g_rockNormalStrength;
+    float  g_rockBaseColorBoost;
 };
 
 cbuffer ShadowCB : register(b1)

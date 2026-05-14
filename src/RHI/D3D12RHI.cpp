@@ -37,6 +37,34 @@ uint64 ReadEnvUInt64(const wchar_t* name, uint64 fallback)
     return end != buffer ? static_cast<uint64>(parsed) : fallback;
 }
 
+bool WaitForFenceAndPumpMessages(HANDLE fenceEvent)
+{
+    if (!fenceEvent)
+        return false;
+
+    for (;;)
+    {
+        const DWORD waitResult = MsgWaitForMultipleObjects(1, &fenceEvent, FALSE, 16, QS_ALLINPUT);
+        if (waitResult == WAIT_OBJECT_0)
+            return true;
+        if (waitResult == WAIT_OBJECT_0 + 1)
+        {
+            MSG msg{};
+            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+            {
+                if (msg.message == WM_QUIT)
+                    PostQuitMessage((int)msg.wParam);
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+        else if (waitResult == WAIT_FAILED)
+        {
+            return false;
+        }
+    }
+}
+
 #pragma pack(push, 1)
 struct FBmpFileHeader
 {
@@ -593,7 +621,7 @@ void FD3D12RHI::EndFrame()
     ID3D12CommandList* lists[] = { CmdList.Get() };
     Queue->ExecuteCommandLists(1, lists);
 
-    ThrowIfFailed(Swapchain->Present(1, 0), "Present failed");
+    ThrowIfFailed(Swapchain->Present(0, 0), "Present failed");
     MoveToNextFrame();
     ++PresentedFrameCounter;
 
@@ -651,7 +679,8 @@ void FD3D12RHI::MoveToNextFrame()
     if (Fence->GetCompletedValue() < FenceValue[FrameIndex])
     {
         ThrowIfFailed(Fence->SetEventOnCompletion(FenceValue[FrameIndex], FenceEvent), "SetEventOnCompletion failed");
-        WaitForSingleObject(FenceEvent, INFINITE);
+        if (!WaitForFenceAndPumpMessages(FenceEvent))
+            ThrowIfFailed(HRESULT_FROM_WIN32(GetLastError()), "Wait for frame fence failed");
     }
 
     FenceValue[FrameIndex] = currentFence + 1;

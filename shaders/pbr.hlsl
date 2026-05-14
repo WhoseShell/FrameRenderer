@@ -19,7 +19,8 @@ cbuffer SceneCB : register(b0)
     float  g_useAOTex;
     float  g_shadingMode;
     float  g_unlitIntensity;
-    float2 _pad2;
+    float  g_rockNormalStrength;
+    float  g_rockBaseColorBoost;
 };
 
 cbuffer ShadowCB : register(b1)
@@ -89,7 +90,7 @@ PSIn VSMain(VSIn i)
  */
 float4 PSMain(PSIn i) : SV_Target
 {
-    FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv);
+    FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv, i.col);
     float3 N = material.Normal;
     float3 V = normalize(g_cameraPosWs - i.posW);
 

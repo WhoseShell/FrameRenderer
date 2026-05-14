@@ -2,17 +2,12 @@
   "type": "Material",
   "version": 2,
   "name": "rdc_scene_color_0_0_0_2_0_0",
-  "shadingMode": "PbrLit",
+  "shadingMode": "Unlit",
   "params": {
-    "BaseColor": [0.094681, 0.235294, 0.040000],
-    "Metallic": 0.000000,
-    "Roughness": 0.500000
+    "Color": [0.094681, 0.235294, 0.040000],
+    "Intensity": 1.000000
   },
   "textures": {
-    "BaseColor": "",
-    "Normal": "",
-    "Roughness": "",
-    "Metallic": "",
-    "AO": ""
+    "Color": ""
   }
 }

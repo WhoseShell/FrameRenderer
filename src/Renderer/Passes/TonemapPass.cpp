@@ -1,5 +1,6 @@
 #include "Renderer/SimpleSceneRenderer.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "Core/Diagnostics.h"
@@ -99,7 +100,7 @@ void FSimpleSceneRenderer::InitTonemapPass(FD3D12RHI& rhi, const D3D12_BLEND_DES
  * @return 无返回值。
  * @note 阶段：后处理参数更新阶段。
  */
-void FSimpleSceneRenderer::UpdateTonemapCB(bool enableTonemap, uint32 frameIndex)
+void FSimpleSceneRenderer::UpdateTonemapCB(bool enableTonemap, uint32 frameIndex, float targetWidth, float targetHeight)
 {
     if (!CBMappedTonemap[frameIndex])
         return;
@@ -109,6 +110,10 @@ void FSimpleSceneRenderer::UpdateTonemapCB(bool enableTonemap, uint32 frameIndex
     tcb.EnableTonemap = enableTonemap ? 1.0f : 0.0f;
     tcb.Exposure = 0.6f;
     tcb.Gamma = 2.2f;
+    tcb.TargetWidth = std::max(1.0f, targetWidth);
+    tcb.TargetHeight = std::max(1.0f, targetHeight);
+    tcb.InvTargetWidth = 1.0f / tcb.TargetWidth;
+    tcb.InvTargetHeight = 1.0f / tcb.TargetHeight;
     std::memcpy(CBMappedTonemap[frameIndex], &tcb, sizeof(tcb));
 }
 

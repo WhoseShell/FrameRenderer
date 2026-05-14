@@ -1,0 +1,101 @@
+{
+  "type": "Level",
+  "name": "RDR2_Rock_Shading",
+  "sun": {
+    "yaw": -1.716179,
+    "pitch": 0.204019,
+    "intensity": 8.000000
+  },
+  "objects": [
+    {
+      "id": 1,
+      "name": "RDR2 Capture Rock",
+      "type": "Static Mesh",
+      "asset": "Models/RDR2Rock/rdr2_capture_rock.obj",
+      "material": "Materials/RDR2Rock/rdr2_capture_rock.material.json",
+      "position": [
+        1.400000,
+        0.390000,
+        0.000000
+      ],
+      "scale": [
+        0.350000,
+        0.350000,
+        0.350000
+      ],
+      "albedo": [
+        1.000000,
+        1.000000,
+        1.000000
+      ],
+      "metallic": 0.000000,
+      "roughness": 0.820000,
+      "lightIntensity": 3.000000,
+      "skyEnabled": true,
+      "rayleighScale": 1.000000,
+      "mieScale": 1.000000,
+      "mieG": 0.800000,
+      "atmosphereHeight": 12.000000
+    },
+    {
+      "id": 2,
+      "name": "Sun Light",
+      "type": "Sun Light",
+      "asset": "",
+      "material": "",
+      "position": [
+        9.689294,
+        -2.026068,
+        1.418669
+      ],
+      "scale": [
+        0.180000,
+        0.180000,
+        0.180000
+      ],
+      "albedo": [
+        1.000000,
+        0.820000,
+        0.180000
+      ],
+      "metallic": 0.000000,
+      "roughness": 0.350000,
+      "lightIntensity": 8.000000,
+      "skyEnabled": true,
+      "rayleighScale": 1.000000,
+      "mieScale": 1.000000,
+      "mieG": 0.800000,
+      "atmosphereHeight": 12.000000
+    },
+    {
+      "id": 3,
+      "name": "Sky Atmosphere",
+      "type": "Sky Atmosphere",
+      "asset": "",
+      "material": "",
+      "position": [
+        -2.500000,
+        1.600000,
+        -2.500000
+      ],
+      "scale": [
+        0.280000,
+        0.280000,
+        0.280000
+      ],
+      "albedo": [
+        0.200000,
+        0.450000,
+        0.950000
+      ],
+      "metallic": 0.000000,
+      "roughness": 0.350000,
+      "lightIntensity": 3.000000,
+      "skyEnabled": true,
+      "rayleighScale": 1.000000,
+      "mieScale": 1.000000,
+      "mieG": 0.800000,
+      "atmosphereHeight": 12.000000
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "type": "Material",
+  "version": 2,
+  "name": "RDR2 Capture Rock",
+  "shadingMode": "Rdr2Rock",
+  "params": {
+    "BaseColor": [1.000000, 1.000000, 1.000000],
+    "Metallic": 0.000000,
+    "Roughness": 0.250000,
+    "NormalStrength": 0.500000,
+    "BaseColorBoost": 1.250000
+  },
+  "textures": {
+    "BaseColor": "Textures/RDR2Rock/102495.dds",
+    "Normal": "Textures/RDR2Rock/102495.dds",
+    "MaskA": "Textures/RDR2Rock/102495.dds",
+    "MaskB": "Textures/RDR2Rock/102495.dds",
+    "Aux": "Textures/RDR2Rock/102495.dds"
+  }
+}

@@ -63,6 +63,23 @@ private:
      */
     void LayoutUI();
     void SyncViewportBackbufferSize();
+    void InitImGuiEditor();
+    void ShutdownImGuiEditor();
+    void BeginImGuiEditorFrame();
+    void DrawImGuiEditor();
+    void DrawImGuiMainMenu();
+    void DrawImGuiPlaceActors();
+    void DrawImGuiViewport();
+    void DrawImGuiOutliner();
+    void DrawImGuiDetails();
+    void DrawImGuiContentDrawer();
+    void DrawImGuiRenderSettings();
+    void DrawImGuiMaterialEditor();
+    void DrawImGuiGizmo();
+    void RenderImGuiDrawData(ID3D12GraphicsCommandList* cmd);
+    void HideLegacyWin32EditorControls();
+    static void ImGuiAllocateSrv(struct ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* outCpu, D3D12_GPU_DESCRIPTOR_HANDLE* outGpu);
+    static void ImGuiFreeSrv(struct ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE gpu);
     /**
      * @brief 刷新天空参数在 UI 上的显示。
      * @param 无。
@@ -233,6 +250,8 @@ private:
         float Metallic = 0.0f;
         float Roughness = 0.5f;
         float UnlitIntensity = 1.0f;
+        float RockNormalStrength = 0.18f;
+        float RockBaseColorBoost = 1.25f;
         int AlbedoTexIndex = -1;
         int NormalTexIndex = -1;
         int RoughnessTexIndex = -1;
@@ -359,11 +378,16 @@ private:
     void MigrateContentMaterialsToV2();
     void SaveMaterialAsset(int materialIndex);
     void ApplyMaterialToObject(int objectIndex, int materialIndex);
+    bool EnsureDefaultMaterialAsset();
+    int EnsureDefaultMaterialLoaded();
+    bool EnsureConcreteMaterialForObject(FSceneObject& object);
+    bool EnsureConcreteMaterialsForRenderableObjects();
     void UpdateMaterialRuntimeBindings(FMaterialAsset& mat);
     void ApplyMaterialAssetToSceneObject(FSceneObject& object, int materialIndex) const;
     FSceneObject MakeSceneObject(FSceneObject::EType type, const DirectX::XMFLOAT3& position, const std::wstring& assetPath = L"");
     editor::FLevelFile BuildLevelFile() const;
     void ApplyLevelFile(const editor::FLevelFile& level, const std::filesystem::path& path);
+    static bool IsMaterialAssignableObject(const FSceneObject& object);
     static std::wstring SceneObjectTypeToString(FSceneObject::EType type);
     static FSceneObject::EType SceneObjectTypeFromString(const std::wstring& type);
     void ApplyDetailsEdits();
@@ -379,6 +403,12 @@ private:
 
     // Viewport (child window hosting swapchain)
     HWND ViewportHwnd = nullptr;
+    uint32 PendingViewportWidth = 0;
+    uint32 PendingViewportHeight = 0;
+    uint64 PendingViewportResizeTickMs = 0;
+    uint64 LastViewportResizeTickMs = 0;
+    static constexpr uint64 ViewportResizeDebounceMs = 250;
+    static constexpr uint64 ViewportResizeRetryMs = 500;
     /**
      * @brief 视口窗口过程（交换链宿主子窗口）。
      * @param hwnd 视口窗口句柄。
@@ -492,6 +522,24 @@ private:
     HWND DetailAtmosphereHeightEdit = nullptr;
     HWND ApplyDetailsBtn = nullptr;
     bool bSuppressOutlinerEvents = false;
+
+    bool bUseImGuiEditor = true;
+    bool bImGuiInitialized = false;
+    bool bShowImGuiSettings = false;
+    bool bShowImGuiMaterialEditor = false;
+    bool bImGuiViewportHovered = false;
+    bool bImGuiViewportFocused = false;
+    int ImGuiViewportScreenX = 0;
+    int ImGuiViewportScreenY = 0;
+    int ImGuiViewportX = 0;
+    int ImGuiViewportY = 0;
+    int ImGuiViewportW = 1;
+    int ImGuiViewportH = 1;
+    int ImGuiSelectedContentListIndex = -1;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> ImGuiSrvHeap;
+    uint32 ImGuiSrvDescriptorSize = 0;
+    uint32 ImGuiNextSrvDescriptor = 0;
+    uint32 ImGuiSrvDescriptorCapacity = 64;
 
     std::filesystem::path ContentRoot;
     editor::FContentLayout ContentLayout{};

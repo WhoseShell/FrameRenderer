@@ -85,6 +85,7 @@ public:
      * @note 阶段：渲染资源创建阶段。
      */
     ID3D12Device* GetDevice() const { return Device.Get(); }
+    ID3D12CommandQueue* GetCommandQueue() const { return Queue.Get(); }
     /**
      * @brief 获取 DXGI 工厂指针。
      * @param 无。

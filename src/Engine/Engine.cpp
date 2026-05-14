@@ -6,8 +6,11 @@
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <random>
 #include <sstream>
+#include <utility>
+#include <vector>
 
 #include <wincodec.h>
 #include <shellapi.h>
@@ -16,6 +19,13 @@
 
 #include "Core/Diagnostics.h"
 #include "Editor/ObjLoader.h"
+#include "imgui.h"
+#include "imgui_internal.h"
+#include "imgui_impl_dx12.h"
+#include "imgui_impl_win32.h"
+#include "ImGuizmo.h"
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace
 {
@@ -63,6 +73,7 @@ constexpr COLORREF kEditorHeader = RGB(43, 43, 43);
 constexpr COLORREF kEditorList = RGB(24, 24, 24);
 constexpr COLORREF kEditorEdit = RGB(46, 46, 46);
 constexpr COLORREF kEditorText = RGB(226, 226, 226);
+constexpr wchar_t kDefaultMaterialAssetPath[] = L"Materials/Default/default_pbr.material.json";
 
 std::filesystem::path MakeUniquePath(const std::filesystem::path& directory, const std::filesystem::path& fileName)
 {
@@ -139,6 +150,8 @@ constexpr FMaterialSchema kMaterialSchemas[] = {
         { L"BaseColor Tex:", L"Normal Tex:", L"Rough Tex:", L"Metal Tex:", L"AO Tex:" }, 5 },
     { EMaterialShadingMode::Unlit, L"Unlit", L"Color:", L"Intensity:", L"", false,
         { L"Color Tex:", L"", L"", L"", L"" }, 1 },
+    { EMaterialShadingMode::Rdr2Rock, L"Rdr2Rock", L"Base Color:", L"Roughness:", L"Normal Str:", true,
+        { L"BaseColor Tex:", L"Normal Tex:", L"Mask A Tex:", L"Mask B Tex:", L"Aux Tex:" }, 5 },
 };
 
 const FMaterialSchema& GetMaterialSchema(EMaterialShadingMode mode)
@@ -237,7 +250,7 @@ static bool HasImageExtension(const std::wstring& path)
     // 转小写后比较扩展名。
     auto ext = std::filesystem::path(path).extension().wstring();
     for (auto& c : ext) c = (wchar_t)towlower(c);
-    return (ext == L".png" || ext == L".jpg" || ext == L".jpeg" || ext == L".tga");
+    return (ext == L".png" || ext == L".jpg" || ext == L".jpeg" || ext == L".tga" || ext == L".dds");
 }
 
 /**
@@ -911,8 +924,36 @@ void FEngine::SyncViewportBackbufferSize()
     GetClientRect(ViewportHwnd, &rc);
     const uint32 width = (uint32)std::max(1L, rc.right - rc.left);
     const uint32 height = (uint32)std::max(1L, rc.bottom - rc.top);
-    if (width != RHI.GetWidth() || height != RHI.GetHeight())
-        RHI.Resize(width, height);
+    if (width == RHI.GetWidth() && height == RHI.GetHeight())
+    {
+        PendingViewportWidth = 0;
+        PendingViewportHeight = 0;
+        PendingViewportResizeTickMs = 0;
+        return;
+    }
+
+    const uint64 nowMs = GetTickCount64();
+    if (width != PendingViewportWidth || height != PendingViewportHeight)
+    {
+        PendingViewportWidth = width;
+        PendingViewportHeight = height;
+        PendingViewportResizeTickMs = nowMs;
+        return;
+    }
+
+    if (nowMs - PendingViewportResizeTickMs < ViewportResizeDebounceMs)
+        return;
+    if (nowMs - LastViewportResizeTickMs < ViewportResizeRetryMs)
+        return;
+
+    LastViewportResizeTickMs = nowMs;
+    RHI.Resize(width, height);
+    if (width == RHI.GetWidth() && height == RHI.GetHeight())
+    {
+        PendingViewportWidth = 0;
+        PendingViewportHeight = 0;
+        PendingViewportResizeTickMs = 0;
+    }
 }
 
 /**
@@ -1216,6 +1257,22 @@ LRESULT CALLBACK FEngine::ToolbarSettingsWndProc(HWND hwnd, UINT msg, WPARAM wPa
  */
 LRESULT FEngine::HandleViewportMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if (bImGuiInitialized)
+    {
+        ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
+        ImGuiIO& io = ImGui::GetIO();
+        const bool mouseMessage =
+            msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP ||
+            msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP || msg == WM_MOUSEWHEEL ||
+            msg == WM_MBUTTONDOWN || msg == WM_MBUTTONUP;
+        const bool keyMessage =
+            msg == WM_KEYDOWN || msg == WM_KEYUP || msg == WM_CHAR ||
+            msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP;
+        if ((mouseMessage && io.WantCaptureMouse && !bImGuiViewportHovered) ||
+            (keyMessage && io.WantCaptureKeyboard && !bImGuiViewportFocused))
+            return 0;
+    }
+
     switch (msg)
     {
     case WM_SETFOCUS:
@@ -1790,6 +1847,9 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
     if (!HasImageExtension(path)) return;
 
     std::filesystem::path source = std::filesystem::path(path);
+    auto ext = source.extension().wstring();
+    for (auto& c : ext) c = (wchar_t)towlower(c);
+    const bool isDds = (ext == L".dds");
     std::filesystem::path finalPath = source;
     if (!ContentRoot.empty() && !IsPathUnder(ContentRoot, source))
     {
@@ -1808,8 +1868,8 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
 
     // Preview (small) + avg color
     HBITMAP previewBmp = nullptr;
-    DirectX::XMFLOAT3 avg{};
-    if (!LoadImagePreviewWIC(finalPath.wstring(), 128, previewBmp, avg))
+    DirectX::XMFLOAT3 avg{ 1.0f, 1.0f, 1.0f };
+    if (!isDds && !LoadImagePreviewWIC(finalPath.wstring(), 128, previewBmp, avg))
     {
         // WIC 不支持 TGA 时走自定义解码并生成预览。
         // WIC might not support TGA; handle TGA preview via full decode
@@ -1865,15 +1925,19 @@ void FEngine::AddTextureFromFile(const std::wstring& path)
     // Decode for renderer upload (limit to 1024 on the longer edge)
     std::vector<uint8> rgba;
     uint32 w = 0, h = 0;
-    bool ok = LoadImageRGBA8WIC(finalPath.wstring(), 1024, rgba, w, h);
-    if (!ok)
-        ok = LoadImageRGBA8TGA(finalPath.wstring(), rgba, w, h);
-    if (!ok || rgba.empty()) return;
+    bool ok = true;
+    if (!isDds)
+    {
+        ok = LoadImageRGBA8WIC(finalPath.wstring(), 1024, rgba, w, h);
+        if (!ok)
+            ok = LoadImageRGBA8TGA(finalPath.wstring(), rgba, w, h);
+        if (!ok || rgba.empty()) return;
+    }
 
     int slot = 0;
     if (RHI.GetDevice())
         // 上传纹理到渲染器，获取槽位。
-        slot = Renderer.CreateTextureRGBA8(RHI, w, h, rgba.data());
+        slot = isDds ? Renderer.CreateTextureDDS(RHI, finalPath) : Renderer.CreateTextureRGBA8(RHI, w, h, rgba.data());
 
     // 写入纹理资产结构。
     FTextureAsset tex{};
@@ -2466,6 +2530,7 @@ void FEngine::SaveCurrentLevel(bool saveAs)
         path = fileName;
     }
 
+    EnsureConcreteMaterialsForRenderableObjects();
     editor::FLevelFile level = BuildLevelFile();
     std::wstring error;
     if (editor::SaveLevelFile(path, level, &error))
@@ -2586,6 +2651,7 @@ void FEngine::PlaceSelectedContentAsset()
     object.StaticMeshIndex = meshIndex;
     if (const auto found = StaticMeshRadiusByAsset.find(asset.RelativePath); found != StaticMeshRadiusByAsset.end())
         object.Radius = found->second;
+    EnsureConcreteMaterialForObject(object);
     Objects.push_back(object);
     SetSelectedIndex((int)Objects.size() - 1);
     ClearAssetPreview();
@@ -2928,6 +2994,8 @@ void FEngine::LoadContentMaterials()
         mat.Metallic = src.Metallic;
         mat.Roughness = src.Roughness;
         mat.UnlitIntensity = std::max(0.0f, src.Intensity);
+        mat.RockNormalStrength = Clamp(src.NormalStrength, 0.0f, 1.0f);
+        mat.RockBaseColorBoost = std::max(0.0f, src.BaseColorBoost);
         mat.AlbedoTexPath = src.AlbedoTexture;
         mat.NormalTexPath = src.NormalTexture;
         mat.RoughnessTexPath = src.RoughnessTexture;
@@ -2977,11 +3045,14 @@ void FEngine::ApplyMaterialAssetToSceneObject(FSceneObject& object, int material
     object.MaterialSRVBase = mat.SRVBase;
     object.MaterialShadingMode = mat.ShadingMode;
     object.UnlitIntensity = mat.UnlitIntensity;
+    object.RockNormalStrength = mat.RockNormalStrength;
+    object.RockBaseColorBoost = mat.RockBaseColorBoost;
     object.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseNormalTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseRoughnessTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseMetallicTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
-    object.UseAOTex = (mat.ShadingMode == EMaterialShadingMode::PbrLit && mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
+    const bool usesPbrSlots = mat.ShadingMode == EMaterialShadingMode::PbrLit || mat.ShadingMode == EMaterialShadingMode::Rdr2Rock;
+    object.UseNormalTex = (usesPbrSlots && mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseRoughnessTex = (usesPbrSlots && mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseMetallicTex = (usesPbrSlots && mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
+    object.UseAOTex = (usesPbrSlots && mat.AOTexIndex >= 0) ? 1.0f : 0.0f;
 }
 
 void FEngine::SaveMaterialAsset(int materialIndex)
@@ -3006,6 +3077,8 @@ void FEngine::SaveMaterialAsset(int materialIndex)
     out.Metallic = mat.Metallic;
     out.Roughness = mat.Roughness;
     out.Intensity = mat.UnlitIntensity;
+    out.NormalStrength = mat.RockNormalStrength;
+    out.BaseColorBoost = mat.RockBaseColorBoost;
     out.AlbedoTexture = (mat.AlbedoTexIndex >= 0 && mat.AlbedoTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.AlbedoTexIndex].RelativePath : mat.AlbedoTexPath;
     out.NormalTexture = (mat.NormalTexIndex >= 0 && mat.NormalTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.NormalTexIndex].RelativePath : mat.NormalTexPath;
     out.RoughnessTexture = (mat.RoughnessTexIndex >= 0 && mat.RoughnessTexIndex < (int)Textures.size()) ? Textures[(size_t)mat.RoughnessTexIndex].RelativePath : mat.RoughnessTexPath;
@@ -3021,8 +3094,124 @@ void FEngine::ApplyMaterialToObject(int objectIndex, int materialIndex)
 {
     if (objectIndex < 0 || objectIndex >= (int)Objects.size() || materialIndex < 0 || materialIndex >= (int)Materials.size())
         return;
+    if (!IsMaterialAssignableObject(Objects[(size_t)objectIndex]))
+        return;
     ApplyMaterialAssetToSceneObject(Objects[(size_t)objectIndex], materialIndex);
     MarkLevelDirty();
+}
+
+bool FEngine::EnsureDefaultMaterialAsset()
+{
+    if (ContentRoot.empty())
+        return false;
+
+    const std::filesystem::path path = editor::ResolveContentPath(ContentRoot, kDefaultMaterialAssetPath);
+    if (std::filesystem::exists(path))
+    {
+        editor::FMaterialFile existing{};
+        std::wstring error;
+        if (editor::LoadMaterialFile(path, existing, &error))
+            return false;
+    }
+
+    editor::FMaterialFile material{};
+    material.Version = 2;
+    material.Name = L"Default PBR";
+    material.ShadingMode = L"PbrLit";
+    material.Albedo = { 0.75f, 0.75f, 0.75f };
+    material.Metallic = 0.0f;
+    material.Roughness = 0.55f;
+
+    std::wstring error;
+    return editor::SaveMaterialFile(path, material, &error);
+}
+
+int FEngine::EnsureDefaultMaterialLoaded()
+{
+    int materialIndex = FindMaterialByAssetPath(kDefaultMaterialAssetPath);
+    if (materialIndex >= 0)
+        return materialIndex;
+
+    const bool created = EnsureDefaultMaterialAsset();
+    if (created)
+        RefreshContentBrowser();
+
+    LoadContentMaterials();
+    materialIndex = FindMaterialByAssetPath(kDefaultMaterialAssetPath);
+    if (materialIndex >= 0)
+        return materialIndex;
+
+    editor::FMaterialFile src{};
+    std::wstring error;
+    const std::filesystem::path path = editor::ResolveContentPath(ContentRoot, kDefaultMaterialAssetPath);
+    if (!editor::LoadMaterialFile(path, src, &error))
+        return -1;
+
+    FMaterialAsset mat{};
+    mat.Name = src.Name.empty() ? L"Default PBR" : src.Name;
+    mat.AssetPath = kDefaultMaterialAssetPath;
+    mat.ShadingMode = ParseMaterialShadingMode(src.ShadingMode);
+    mat.Albedo = src.Albedo;
+    mat.Metallic = src.Metallic;
+    mat.Roughness = src.Roughness;
+    mat.UnlitIntensity = std::max(0.0f, src.Intensity);
+    mat.RockNormalStrength = Clamp(src.NormalStrength, 0.0f, 1.0f);
+    mat.RockBaseColorBoost = std::max(0.0f, src.BaseColorBoost);
+    mat.AlbedoTexPath = src.AlbedoTexture;
+    mat.NormalTexPath = src.NormalTexture;
+    mat.RoughnessTexPath = src.RoughnessTexture;
+    mat.MetallicTexPath = src.MetallicTexture;
+    mat.AOTexPath = src.AOTexture;
+    mat.AlbedoTexIndex = EnsureTextureLoaded(mat.AlbedoTexPath);
+    mat.NormalTexIndex = EnsureTextureLoaded(mat.NormalTexPath);
+    mat.RoughnessTexIndex = EnsureTextureLoaded(mat.RoughnessTexPath);
+    mat.MetallicTexIndex = EnsureTextureLoaded(mat.MetallicTexPath);
+    mat.AOTexIndex = EnsureTextureLoaded(mat.AOTexPath);
+    UpdateMaterialRuntimeBindings(mat);
+    Materials.push_back(mat);
+    materialIndex = (int)Materials.size() - 1;
+    if (MaterialList)
+        SendMessageW(MaterialList, LB_ADDSTRING, 0, (LPARAM)Materials[(size_t)materialIndex].Name.c_str());
+    return materialIndex;
+}
+
+bool FEngine::EnsureConcreteMaterialForObject(FSceneObject& object)
+{
+    if (!IsMaterialAssignableObject(object))
+        return false;
+
+    LoadContentMaterials();
+
+    int materialIndex = -1;
+    if (!object.MaterialPath.empty())
+        materialIndex = FindMaterialByAssetPath(object.MaterialPath);
+    else if (object.MaterialIndex >= 0 && object.MaterialIndex < (int)Materials.size() && !Materials[(size_t)object.MaterialIndex].AssetPath.empty())
+        materialIndex = object.MaterialIndex;
+
+    if (materialIndex < 0)
+        materialIndex = EnsureDefaultMaterialLoaded();
+    if (materialIndex < 0 || materialIndex >= (int)Materials.size())
+        return false;
+
+    const FMaterialAsset& mat = Materials[(size_t)materialIndex];
+    const bool changed =
+        object.MaterialIndex != materialIndex ||
+        object.MaterialPath != mat.AssetPath ||
+        object.MaterialSRVBase != mat.SRVBase ||
+        object.MaterialShadingMode != mat.ShadingMode;
+    ApplyMaterialAssetToSceneObject(object, materialIndex);
+    return changed;
+}
+
+bool FEngine::EnsureConcreteMaterialsForRenderableObjects()
+{
+    LoadContentMaterials();
+    EnsureDefaultMaterialLoaded();
+
+    bool changed = false;
+    for (FSceneObject& object : Objects)
+        changed = EnsureConcreteMaterialForObject(object) || changed;
+    return changed;
 }
 
 FSceneObject FEngine::MakeSceneObject(FSceneObject::EType type, const DirectX::XMFLOAT3& position, const std::wstring& assetPath)
@@ -3145,9 +3334,7 @@ void FEngine::ApplyLevelFile(const editor::FLevelFile& level, const std::filesys
                 continue;
         }
         Objects.push_back(object);
-        const int matIndex = FindMaterialByAssetPath(in.Material);
-        if (matIndex >= 0)
-            ApplyMaterialToObject((int)Objects.size() - 1, matIndex);
+        EnsureConcreteMaterialForObject(Objects.back());
         NextObjectId = std::max(NextObjectId, object.Id + 1);
     }
     EnsureDefaultEnvironmentActors();
@@ -3182,6 +3369,21 @@ FSceneObject::EType FEngine::SceneObjectTypeFromString(const std::wstring& type)
     if (type == L"Sun Light") return FSceneObject::EType::SunLight;
     if (type == L"Sky Atmosphere" || type == L"SkyAtmosphere") return FSceneObject::EType::SkyAtmosphere;
     return FSceneObject::EType::Sphere;
+}
+
+bool FEngine::IsMaterialAssignableObject(const FSceneObject& object)
+{
+    switch (object.Type)
+    {
+    case FSceneObject::EType::Sphere:
+    case FSceneObject::EType::Box:
+    case FSceneObject::EType::Cone:
+    case FSceneObject::EType::StaticMesh:
+    case FSceneObject::EType::RenderDocRock:
+        return true;
+    default:
+        return false;
+    }
 }
 
 void FEngine::ApplyDetailsEdits()
@@ -3234,6 +3436,11 @@ void FEngine::OpenMaterialEditor(int materialIndex)
     // 校验索引有效性。
     if (materialIndex < 0 || materialIndex >= (int)Materials.size()) return;
     EditingMaterialIndex = materialIndex;
+    if (bUseImGuiEditor)
+    {
+        bShowImGuiMaterialEditor = true;
+        return;
+    }
 
     if (!MaterialEditorHwnd)
     {
@@ -3355,7 +3562,12 @@ void FEngine::UpdateMaterialEditorControls()
         SendMessageW(paramA, TBM_SETPOS, TRUE, (LPARAM)(int)(v * kSliderSteps));
     }
     if (paramB)
-        SendMessageW(paramB, TBM_SETPOS, TRUE, (LPARAM)(int)(Clamp(mat.Metallic, 0.0f, 1.0f) * kSliderSteps));
+    {
+        const float v = (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+            ? Clamp(mat.RockNormalStrength, 0.0f, 1.0f)
+            : Clamp(mat.Metallic, 0.0f, 1.0f);
+        SendMessageW(paramB, TBM_SETPOS, TRUE, (LPARAM)(int)(v * kSliderSteps));
+    }
 
     auto setVisible = [&](int id, bool visible)
     {
@@ -3444,6 +3656,13 @@ void FEngine::ApplyMaterialEditorChanges()
         {
             mat.UnlitIntensity = 1.0f;
         }
+        else if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+        {
+            mat.Roughness = 0.82f;
+            mat.Metallic = 0.0f;
+            mat.RockNormalStrength = 0.18f;
+            mat.RockBaseColorBoost = 1.25f;
+        }
         else
         {
             mat.Roughness = 0.5f;
@@ -3458,8 +3677,14 @@ void FEngine::ApplyMaterialEditorChanges()
         else
             mat.Roughness = value;
     }
-    if (!modeChanged && paramB && mat.ShadingMode == EMaterialShadingMode::PbrLit)
-        mat.Metallic = Clamp((float)SendMessageW(paramB, TBM_GETPOS, 0, 0) / kSliderSteps, 0.0f, 1.0f);
+    if (!modeChanged && paramB)
+    {
+        const float value = Clamp((float)SendMessageW(paramB, TBM_GETPOS, 0, 0) / kSliderSteps, 0.0f, 1.0f);
+        if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+            mat.RockNormalStrength = value;
+        else if (mat.ShadingMode == EMaterialShadingMode::PbrLit)
+            mat.Metallic = value;
+    }
 
     // 读取下拉框选择，更新纹理索引与槽位。
     auto readCombo = [&](int id, int& outIndex, int& outSlot, int defaultSlot)
@@ -3481,7 +3706,7 @@ void FEngine::ApplyMaterialEditorChanges()
     };
 
     readCombo(IDC_MATERIAL_TEX0, mat.AlbedoTexIndex, mat.AlbedoTexSlot, 0);
-    if (mat.ShadingMode == EMaterialShadingMode::PbrLit)
+    if (mat.ShadingMode == EMaterialShadingMode::PbrLit || mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
     {
         readCombo(IDC_MATERIAL_TEX1, mat.NormalTexIndex, mat.NormalTexSlot, 1);
         readCombo(IDC_MATERIAL_TEX2, mat.RoughnessTexIndex, mat.RoughnessTexSlot, 2);
@@ -3522,8 +3747,783 @@ void FEngine::ApplyMaterialEditorChanges()
     MarkLevelDirty();
 }
 
+void FEngine::ImGuiAllocateSrv(ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* outCpu, D3D12_GPU_DESCRIPTOR_HANDLE* outGpu)
+{
+    auto* engine = info ? static_cast<FEngine*>(info->UserData) : nullptr;
+    if (!engine || !engine->ImGuiSrvHeap || !outCpu || !outGpu)
+        return;
+    const uint32 index = std::min(engine->ImGuiNextSrvDescriptor++, engine->ImGuiSrvDescriptorCapacity - 1);
+    *outCpu = engine->ImGuiSrvHeap->GetCPUDescriptorHandleForHeapStart();
+    *outGpu = engine->ImGuiSrvHeap->GetGPUDescriptorHandleForHeapStart();
+    outCpu->ptr += SIZE_T(index) * engine->ImGuiSrvDescriptorSize;
+    outGpu->ptr += SIZE_T(index) * engine->ImGuiSrvDescriptorSize;
+}
+
+void FEngine::ImGuiFreeSrv(ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE)
+{
+}
+
+void FEngine::InitImGuiEditor()
+{
+    if (bImGuiInitialized || !RHI.GetDevice())
+        return;
+
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.NumDescriptors = ImGuiSrvDescriptorCapacity;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(RHI.GetDevice()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&ImGuiSrvHeap)), "CreateDescriptorHeap ImGui SRV failed");
+    ImGuiSrvDescriptorSize = RHI.GetDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    ImGuiNextSrvDescriptor = 0;
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.IniFilename = nullptr;
+
+    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 3.0f;
+    style.FrameRounding = 2.0f;
+    style.TabRounding = 3.0f;
+    style.GrabRounding = 2.0f;
+    style.WindowBorderSize = 1.0f;
+    style.FrameBorderSize = 1.0f;
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.075f, 1.0f);
+    style.Colors[ImGuiCol_ChildBg] = ImVec4(0.09f, 0.09f, 0.10f, 1.0f);
+    style.Colors[ImGuiCol_Header] = ImVec4(0.10f, 0.35f, 0.62f, 0.75f);
+    style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.14f, 0.45f, 0.78f, 0.85f);
+    style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.07f, 0.42f, 0.78f, 1.0f);
+    style.Colors[ImGuiCol_Button] = ImVec4(0.15f, 0.15f, 0.17f, 1.0f);
+    style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.22f, 0.32f, 0.42f, 1.0f);
+    style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.10f, 0.40f, 0.70f, 1.0f);
+    style.Colors[ImGuiCol_Tab] = ImVec4(0.10f, 0.10f, 0.11f, 1.0f);
+    style.Colors[ImGuiCol_TabHovered] = ImVec4(0.16f, 0.34f, 0.56f, 1.0f);
+    style.Colors[ImGuiCol_TabSelected] = ImVec4(0.12f, 0.25f, 0.40f, 1.0f);
+
+    ImGui_ImplWin32_Init(ViewportHwnd ? ViewportHwnd : Window.GetHwnd());
+
+    ImGui_ImplDX12_InitInfo initInfo{};
+    initInfo.Device = RHI.GetDevice();
+    initInfo.CommandQueue = RHI.GetCommandQueue();
+    initInfo.NumFramesInFlight = FD3D12RHI::kFrameCount;
+    initInfo.RTVFormat = RHI.GetBackBufferFormat();
+    initInfo.DSVFormat = RHI.GetDepthFormat();
+    initInfo.UserData = this;
+    initInfo.SrvDescriptorHeap = ImGuiSrvHeap.Get();
+    initInfo.SrvDescriptorAllocFn = &FEngine::ImGuiAllocateSrv;
+    initInfo.SrvDescriptorFreeFn = &FEngine::ImGuiFreeSrv;
+    if (!ImGui_ImplDX12_Init(&initInfo))
+        throw std::runtime_error("ImGui_ImplDX12_Init failed");
+
+    bImGuiInitialized = true;
+}
+
+void FEngine::ShutdownImGuiEditor()
+{
+    if (!bImGuiInitialized)
+        return;
+    ImGui_ImplDX12_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+    ImGuiSrvHeap.Reset();
+    bImGuiInitialized = false;
+}
+
+void FEngine::BeginImGuiEditorFrame()
+{
+    if (!bImGuiInitialized)
+        return;
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
+}
+
+void FEngine::DrawImGuiMainMenu()
+{
+    if (!ImGui::BeginMainMenuBar())
+        return;
+    if (ImGui::BeginMenu("File"))
+    {
+        if (ImGui::MenuItem("New Level", "Ctrl+N")) NewLevel();
+        if (ImGui::MenuItem("Open Level", "Ctrl+O")) OpenLevelFromDialog();
+        if (ImGui::MenuItem("Save Level", "Ctrl+S")) SaveCurrentLevel(false);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Import OBJ")) ImportObjFromDialog();
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Window"))
+    {
+        ImGui::MenuItem("Render Settings", nullptr, &bShowImGuiSettings);
+        if (ImGui::MenuItem("Material Editor", nullptr, bShowImGuiMaterialEditor))
+        {
+            if ((EditingMaterialIndex < 0 || EditingMaterialIndex >= (int)Materials.size()) && !Materials.empty())
+                EditingMaterialIndex = 0;
+            bShowImGuiMaterialEditor = true;
+        }
+        ImGui::EndMenu();
+    }
+    const std::string level = editor::ToUtf8(CurrentLevelName.empty() ? L"Untitled" : CurrentLevelName);
+    const std::string selected = (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size()) ? editor::ToUtf8(Objects[(size_t)SelectedIndex].Name) : "None";
+    ImGui::Separator();
+    ImGui::TextUnformatted(("Level: " + level + (bLevelDirty ? "*" : "")).c_str());
+    ImGui::Separator();
+    ImGui::TextUnformatted(("Selected: " + selected).c_str());
+    ImGui::EndMainMenuBar();
+}
+
+void FEngine::DrawImGuiPlaceActors()
+{
+    ImGui::Begin("Place Actors");
+    auto placeButton = [&](const char* label, FSceneObject::EType type)
+    {
+        if (ImGui::Selectable(label, false))
+        {
+            using namespace DirectX;
+            XMVECTOR p = XMLoadFloat3(&Camera.Position);
+            p = XMVectorAdd(p, XMVectorScale(Camera.GetForwardVector(), 4.0f));
+            XMFLOAT3 pos{};
+            XMStoreFloat3(&pos, p);
+            if (type != FSceneObject::EType::SunLight && type != FSceneObject::EType::SkyAtmosphere)
+                pos.y = 0.0f;
+            FSceneObject obj = MakeSceneObject(type, pos);
+            EnsureConcreteMaterialForObject(obj);
+            Objects.push_back(obj);
+            SetSelectedIndex((int)Objects.size() - 1);
+            MarkLevelDirty();
+        }
+    };
+    if (ImGui::CollapsingHeader("Basic", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        placeButton("Sphere", FSceneObject::EType::Sphere);
+        placeButton("Box", FSceneObject::EType::Box);
+        placeButton("Cone", FSceneObject::EType::Cone);
+    }
+    if (ImGui::CollapsingHeader("Environment", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        placeButton("Sun Light", FSceneObject::EType::SunLight);
+        placeButton("Sky Atmosphere", FSceneObject::EType::SkyAtmosphere);
+    }
+    if (ImGui::CollapsingHeader("RenderDoc", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        placeButton("RenderDoc Rock", FSceneObject::EType::RenderDocRock);
+    }
+    ImGui::End();
+}
+
+void FEngine::DrawImGuiViewport()
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    bImGuiViewportHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    bImGuiViewportFocused = ImGui::IsWindowFocused();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    ImGuiViewportScreenX = (int)std::floor(origin.x);
+    ImGuiViewportScreenY = (int)std::floor(origin.y);
+    const ImVec2 displayPos = ImGui::GetMainViewport()->Pos;
+    ImGuiViewportX = std::max(0, (int)std::floor(origin.x - displayPos.x));
+    ImGuiViewportY = std::max(0, (int)std::floor(origin.y - displayPos.y));
+    ImGuiViewportW = std::max(1, (int)std::floor(avail.x));
+    ImGuiViewportH = std::max(1, (int)std::floor(avail.y));
+    ImGui::InvisibleButton("SceneViewportHitArea", avail, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    bImGuiViewportHovered = bImGuiViewportHovered || ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    DrawImGuiGizmo();
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void FEngine::DrawImGuiOutliner()
+{
+    ImGui::Begin("Level Outliner");
+    for (int i = 0; i < (int)Objects.size(); ++i)
+    {
+        const std::string label = editor::ToUtf8(Objects[(size_t)i].Name) + "##obj" + std::to_string(i);
+        if (ImGui::Selectable(label.c_str(), SelectedIndex == i))
+            SetSelectedIndex(i);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            FocusViewportOnObject(i);
+    }
+    ImGui::End();
+}
+
+void FEngine::DrawImGuiDetails()
+{
+    ImGui::Begin("Details");
+    if (SelectedIndex < 0 || SelectedIndex >= (int)Objects.size())
+    {
+        ImGui::TextDisabled("No actor selected");
+        ImGui::End();
+        return;
+    }
+
+    FSceneObject& obj = Objects[(size_t)SelectedIndex];
+    char nameBuf[256]{};
+    const std::string name = editor::ToUtf8(obj.Name);
+    strncpy_s(nameBuf, name.c_str(), _TRUNCATE);
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
+    {
+        obj.Name = editor::FromUtf8(nameBuf);
+        MarkLevelDirty();
+    }
+
+    float pos[3] = { obj.Position.x, obj.Position.y, obj.Position.z };
+    if (ImGui::DragFloat3("Location", pos, 0.05f))
+    {
+        obj.Position = { pos[0], pos[1], pos[2] };
+        MarkLevelDirty();
+    }
+    float scale[3] = { obj.Scale.x, obj.Scale.y, obj.Scale.z };
+    if (ImGui::DragFloat3("Scale", scale, 0.02f, 0.01f, 100.0f))
+    {
+        obj.Scale = { scale[0], scale[1], scale[2] };
+        MarkLevelDirty();
+    }
+    if (IsMaterialAssignableObject(obj))
+    {
+        LoadContentMaterials();
+        if (EnsureConcreteMaterialForObject(obj))
+            MarkLevelDirty();
+
+        ImGui::SeparatorText("Material");
+
+        int activeMaterialIndex = obj.MaterialIndex;
+        if ((activeMaterialIndex < 0 || activeMaterialIndex >= (int)Materials.size()) && !obj.MaterialPath.empty())
+            activeMaterialIndex = FindMaterialByAssetPath(obj.MaterialPath);
+
+        const bool hasBoundMaterial = activeMaterialIndex >= 0 && activeMaterialIndex < (int)Materials.size();
+        std::string preview = "Missing Material";
+        if (hasBoundMaterial)
+            preview = editor::ToUtf8(Materials[(size_t)activeMaterialIndex].Name);
+        else if (!obj.MaterialPath.empty())
+            preview = "Missing: " + editor::ToUtf8(obj.MaterialPath);
+
+        if (ImGui::BeginCombo("Material", preview.c_str()))
+        {
+            for (int i = 0; i < (int)Materials.size(); ++i)
+            {
+                const FMaterialAsset& mat = Materials[(size_t)i];
+                std::string label = editor::ToUtf8(mat.Name);
+                if (!mat.AssetPath.empty())
+                    label += "    " + editor::ToUtf8(mat.AssetPath);
+                label += "##details_material_" + std::to_string(i);
+
+                const bool selected = activeMaterialIndex == i || (!obj.MaterialPath.empty() && obj.MaterialPath == mat.AssetPath);
+                if (ImGui::Selectable(label.c_str(), selected))
+                    ApplyMaterialToObject(SelectedIndex, i);
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        if (hasBoundMaterial)
+        {
+            const FMaterialAsset& mat = Materials[(size_t)activeMaterialIndex];
+            if (!mat.AssetPath.empty())
+                ImGui::TextDisabled("%s", editor::ToUtf8(mat.AssetPath).c_str());
+        }
+        else if (!obj.MaterialPath.empty())
+        {
+            ImGui::TextColored(ImVec4(0.95f, 0.48f, 0.32f, 1.0f), "%s", editor::ToUtf8(obj.MaterialPath).c_str());
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(0.95f, 0.48f, 0.32f, 1.0f), "No concrete material loaded");
+        }
+    }
+    if (obj.Type == FSceneObject::EType::SunLight)
+    {
+        if (ImGui::DragFloat("Intensity", &obj.LightIntensity, 0.05f, 0.0f, 100.0f))
+            MarkLevelDirty();
+    }
+    if (obj.Type == FSceneObject::EType::SkyAtmosphere)
+    {
+        if (ImGui::Checkbox("Enable", &obj.SkyEnabled))
+            MarkLevelDirty();
+        if (ImGui::DragFloat("Rayleigh", &obj.RayleighScale, 0.01f, 0.0f, 10.0f))
+            MarkLevelDirty();
+        if (ImGui::DragFloat("Mie", &obj.MieScale, 0.01f, 0.0f, 10.0f))
+            MarkLevelDirty();
+        if (ImGui::DragFloat("Mie G", &obj.MieG, 0.01f, -0.99f, 0.99f))
+            MarkLevelDirty();
+        if (ImGui::DragFloat("Atmosphere Height", &obj.AtmosphereHeight, 0.1f, 0.5f, 100.0f))
+            MarkLevelDirty();
+    }
+    ImGui::End();
+}
+
+void FEngine::DrawImGuiContentDrawer()
+{
+    ImGui::Begin("Content Drawer");
+    if (ImGui::Button("Import OBJ")) ImportObjFromDialog();
+    ImGui::SameLine();
+    if (ImGui::Button("Place/Open")) PlaceSelectedContentAsset();
+    ImGui::SameLine();
+    if (ImGui::Button("New Material"))
+    {
+        FMaterialAsset mat{};
+        mat.Name = L"Material " + std::to_wstring((int)Materials.size() + 1);
+        mat.AssetPath = L"Materials/" + mat.Name + L".material.json";
+        Materials.push_back(mat);
+        SaveMaterialAsset((int)Materials.size() - 1);
+        RefreshContentBrowser();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("New Level")) NewLevel();
+    ImGui::SameLine();
+    if (ImGui::Button("Open")) OpenLevelFromDialog();
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) SaveCurrentLevel(false);
+    ImGui::Separator();
+
+    const char* folders[] = { "Models", "Textures", "Materials", "Levels" };
+    ImGui::BeginChild("Folders", ImVec2(150, 0), true);
+    for (int i = 0; i < 4; ++i)
+    {
+        if (ImGui::Selectable(folders[i], (int)ContentFilter == i))
+        {
+            SelectContentFilter((EContentFilter)i);
+            ImGuiSelectedContentListIndex = -1;
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    const float inspectorWidth = 260.0f;
+    const float assetWidth = std::max(220.0f, ImGui::GetContentRegionAvail().x - inspectorWidth - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::BeginChild("Assets", ImVec2(assetWidth, 0), true);
+    for (int local = 0; local < (int)ContentListAssetIndices.size(); ++local)
+    {
+        const int assetIndex = ContentListAssetIndices[(size_t)local];
+        if (assetIndex < 0 || assetIndex >= (int)ContentAssets.size())
+            continue;
+        const auto& asset = ContentAssets[(size_t)assetIndex];
+        const std::string label = editor::ToUtf8(asset.Name + L"    " + asset.RelativePath) + "##asset" + std::to_string(local);
+        if (ImGui::Selectable(label.c_str(), ImGuiSelectedContentListIndex == local))
+        {
+            ImGuiSelectedContentListIndex = local;
+            if (ContentList)
+                SendMessageW(ContentList, LB_SETCURSEL, (WPARAM)local, 0);
+        }
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            ImGuiSelectedContentListIndex = local;
+            if (ContentList)
+                SendMessageW(ContentList, LB_SETCURSEL, (WPARAM)local, 0);
+            PreviewContentAsset(asset);
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginChild("Inspector", ImVec2(0, 0), true);
+    ImGui::TextUnformatted("Inspector");
+    ImGui::Separator();
+    if (ImGuiSelectedContentListIndex >= 0 && ImGuiSelectedContentListIndex < (int)ContentListAssetIndices.size())
+    {
+        const int assetIndex = ContentListAssetIndices[(size_t)ImGuiSelectedContentListIndex];
+        if (assetIndex >= 0 && assetIndex < (int)ContentAssets.size())
+        {
+            const auto& asset = ContentAssets[(size_t)assetIndex];
+            ImGui::TextWrapped("%s", editor::ToUtf8(asset.Name).c_str());
+            ImGui::TextDisabled("%s", editor::ToUtf8(asset.RelativePath).c_str());
+            ImGui::Spacing();
+            ImGui::Text("Type: %s", folders[(int)asset.Kind]);
+        }
+    }
+    else
+    {
+        ImGui::TextDisabled("Select an asset to preview details.");
+    }
+    ImGui::EndChild();
+    ImGui::End();
+}
+
+void FEngine::DrawImGuiRenderSettings()
+{
+    if (!bShowImGuiSettings)
+        return;
+    ImGui::Begin("Render Settings", &bShowImGuiSettings);
+    int path = (RenderPath == FSimpleSceneRenderer::ERenderPath::Deferred) ? 1 : 0;
+    if (ImGui::Combo("Render Path", &path, "Forward\0Deferred\0"))
+        RenderPath = (path == 1) ? FSimpleSceneRenderer::ERenderPath::Deferred : FSimpleSceneRenderer::ERenderPath::Forward;
+    ImGui::Checkbox("Lumen", &bEnableLumen);
+    ImGui::Checkbox("SWRT GI", &bEnableLumenSWRT);
+    ImGui::Checkbox("HWRT GI", &bEnableLumenHWRT);
+    ImGui::Checkbox("Tonemap", &bEnableTonemap);
+    ImGui::End();
+}
+
+void FEngine::DrawImGuiMaterialEditor()
+{
+    if (!bShowImGuiMaterialEditor)
+        return;
+    if (EditingMaterialIndex < 0 || EditingMaterialIndex >= (int)Materials.size())
+    {
+        ImGui::Begin("Material Editor", &bShowImGuiMaterialEditor);
+        ImGui::TextDisabled("Double-click or preview a material first.");
+        ImGui::End();
+        return;
+    }
+
+    FMaterialAsset& mat = Materials[(size_t)EditingMaterialIndex];
+    ImGui::Begin("Material Editor", &bShowImGuiMaterialEditor);
+    ImGui::TextUnformatted(editor::ToUtf8(mat.Name).c_str());
+    ImGui::TextDisabled("Changes update the preview live. Save writes the material JSON.");
+    ImGui::Separator();
+
+    bool materialChanged = false;
+    bool saveMaterial = false;
+
+    auto clearInactiveTextureSlots = [&]()
+    {
+        if (mat.ShadingMode == EMaterialShadingMode::Unlit)
+        {
+            mat.NormalTexIndex = -1;
+            mat.RoughnessTexIndex = -1;
+            mat.MetallicTexIndex = -1;
+            mat.AOTexIndex = -1;
+            mat.NormalTexPath.clear();
+            mat.RoughnessTexPath.clear();
+            mat.MetallicTexPath.clear();
+            mat.AOTexPath.clear();
+            mat.NormalTexSlot = 1;
+            mat.RoughnessTexSlot = 2;
+            mat.MetallicTexSlot = 3;
+            mat.AOTexSlot = 4;
+        }
+    };
+
+    std::vector<std::pair<std::wstring, std::wstring>> textureOptions;
+    auto hasTextureOption = [&](const std::wstring& relPath)
+    {
+        for (const auto& option : textureOptions)
+            if (option.second == relPath)
+                return true;
+        return false;
+    };
+    for (const auto& asset : ContentAssets)
+    {
+        if (asset.Kind != editor::EAssetKind::Texture || asset.RelativePath.empty() || hasTextureOption(asset.RelativePath))
+            continue;
+        textureOptions.emplace_back(asset.Name + L"    " + asset.RelativePath, asset.RelativePath);
+    }
+    for (const auto& texture : Textures)
+    {
+        if (texture.RelativePath.empty() || hasTextureOption(texture.RelativePath))
+            continue;
+        textureOptions.emplace_back(texture.Name + L"    " + texture.RelativePath, texture.RelativePath);
+    }
+
+    auto currentTexturePath = [&](int textureIndex, const std::wstring& fallbackPath)
+    {
+        if (textureIndex >= 0 && textureIndex < (int)Textures.size())
+            return Textures[(size_t)textureIndex].RelativePath;
+        return fallbackPath;
+    };
+
+    auto setTextureSlot = [&](const std::wstring& relPath, int& textureIndex, int& rendererSlot, std::wstring& storedPath, int defaultSlot)
+    {
+        if (relPath.empty())
+        {
+            textureIndex = -1;
+            rendererSlot = defaultSlot;
+            storedPath.clear();
+            return true;
+        }
+
+        const int loadedIndex = EnsureTextureLoaded(relPath);
+        if (loadedIndex < 0 || loadedIndex >= (int)Textures.size())
+            return false;
+
+        textureIndex = loadedIndex;
+        rendererSlot = Textures[(size_t)loadedIndex].RendererSlot;
+        storedPath = Textures[(size_t)loadedIndex].RelativePath;
+        return true;
+    };
+
+    int mode = MaterialShadingModeComboIndex(mat.ShadingMode);
+    if (ImGui::BeginCombo("Shading Mode", editor::ToUtf8(MaterialShadingModeName(mat.ShadingMode)).c_str()))
+    {
+        for (int i = 0; i < (int)(sizeof(kMaterialSchemas) / sizeof(kMaterialSchemas[0])); ++i)
+        {
+            const bool selected = (mode == i);
+            if (ImGui::Selectable(editor::ToUtf8(kMaterialSchemas[i].Name).c_str(), selected))
+            {
+                mode = i;
+                const EMaterialShadingMode newMode = MaterialShadingModeFromComboIndex(i);
+                if (mat.ShadingMode != newMode)
+                {
+                    mat.ShadingMode = newMode;
+                    if (mat.ShadingMode == EMaterialShadingMode::Unlit)
+                        mat.UnlitIntensity = 1.0f;
+                    else if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+                    {
+                        mat.Roughness = 0.82f;
+                        mat.Metallic = 0.0f;
+                        mat.RockNormalStrength = 0.18f;
+                        mat.RockBaseColorBoost = 1.25f;
+                    }
+                    else
+                    {
+                        mat.Roughness = 0.5f;
+                        mat.Metallic = 0.0f;
+                    }
+                    clearInactiveTextureSlots();
+                    materialChanged = true;
+                }
+            }
+            if (selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    const FMaterialSchema& schema = GetMaterialSchema(mat.ShadingMode);
+    float color[3] = { mat.Albedo.x, mat.Albedo.y, mat.Albedo.z };
+    if (ImGui::ColorEdit3("Color", color))
+    {
+        mat.Albedo = { color[0], color[1], color[2] };
+        materialChanged = true;
+    }
+    if (mat.ShadingMode == EMaterialShadingMode::Unlit)
+    {
+        ImGui::DragFloat("Intensity", &mat.UnlitIntensity, 0.02f, 0.0f, 20.0f);
+        if (ImGui::IsItemEdited())
+            materialChanged = true;
+    }
+    else
+    {
+        if (ImGui::SliderFloat("Roughness", &mat.Roughness, 0.0f, 1.0f))
+            materialChanged = true;
+        if (mat.ShadingMode == EMaterialShadingMode::PbrLit)
+            if (ImGui::SliderFloat("Metallic", &mat.Metallic, 0.0f, 1.0f))
+                materialChanged = true;
+        if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+        {
+            if (ImGui::SliderFloat("Normal Strength", &mat.RockNormalStrength, 0.0f, 1.0f))
+                materialChanged = true;
+            if (ImGui::DragFloat("Base Color Boost", &mat.RockBaseColorBoost, 0.01f, 0.0f, 8.0f))
+                materialChanged = true;
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Texture Slots");
+    if (textureOptions.empty())
+        ImGui::TextDisabled("No texture assets found under Content/Textures.");
+
+    auto drawTextureSlot = [&](int slotIndex, const wchar_t* slotLabel, int& textureIndex, int& rendererSlot, std::wstring& storedPath, int defaultSlot)
+    {
+        const std::wstring selectedPath = currentTexturePath(textureIndex, storedPath);
+        std::string preview = "<None>";
+        if (!selectedPath.empty())
+            preview = editor::ToUtf8(std::filesystem::path(selectedPath).filename().wstring());
+
+        const std::string label = editor::ToUtf8(slotLabel) + "##mat_tex_slot_" + std::to_string(slotIndex);
+        if (ImGui::BeginCombo(label.c_str(), preview.c_str()))
+        {
+            const bool noneSelected = selectedPath.empty();
+            if (ImGui::Selectable("<None>", noneSelected))
+            {
+                if (setTextureSlot(L"", textureIndex, rendererSlot, storedPath, defaultSlot))
+                    materialChanged = true;
+            }
+            if (noneSelected)
+                ImGui::SetItemDefaultFocus();
+            ImGui::Separator();
+
+            for (const auto& option : textureOptions)
+            {
+                const bool selected = (option.second == selectedPath);
+                if (ImGui::Selectable(editor::ToUtf8(option.first).c_str(), selected))
+                {
+                    if (setTextureSlot(option.second, textureIndex, rendererSlot, storedPath, defaultSlot))
+                        materialChanged = true;
+                }
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        const std::wstring resolvedPath = currentTexturePath(textureIndex, storedPath);
+        if (!resolvedPath.empty())
+        {
+            ImGui::TextDisabled("%s", editor::ToUtf8(resolvedPath).c_str());
+            if (textureIndex >= 0 && textureIndex < (int)Textures.size())
+            {
+                const auto& texture = Textures[(size_t)textureIndex];
+                const ImVec4 avg(texture.AvgColor.x, texture.AvgColor.y, texture.AvgColor.z, 1.0f);
+                ImGui::ColorButton(("Avg##slot_avg_" + std::to_string(slotIndex)).c_str(), avg, ImGuiColorEditFlags_NoTooltip, ImVec2(18, 18));
+                ImGui::SameLine();
+                ImGui::TextDisabled("Renderer slot %d", rendererSlot);
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.48f, 0.32f, 1.0f), "Missing or not loaded");
+            }
+        }
+    };
+
+    drawTextureSlot(0, schema.TextureLabels[0], mat.AlbedoTexIndex, mat.AlbedoTexSlot, mat.AlbedoTexPath, 0);
+    if (schema.TextureCount > 1)
+        drawTextureSlot(1, schema.TextureLabels[1], mat.NormalTexIndex, mat.NormalTexSlot, mat.NormalTexPath, 1);
+    if (schema.TextureCount > 2)
+        drawTextureSlot(2, schema.TextureLabels[2], mat.RoughnessTexIndex, mat.RoughnessTexSlot, mat.RoughnessTexPath, 2);
+    if (schema.TextureCount > 3)
+        drawTextureSlot(3, schema.TextureLabels[3], mat.MetallicTexIndex, mat.MetallicTexSlot, mat.MetallicTexPath, 3);
+    if (schema.TextureCount > 4)
+        drawTextureSlot(4, schema.TextureLabels[4], mat.AOTexIndex, mat.AOTexSlot, mat.AOTexPath, 4);
+
+    ImGui::Spacing();
+    if (ImGui::Button("Apply"))
+        materialChanged = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Save Material"))
+        saveMaterial = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Refresh Textures"))
+    {
+        RefreshContentBrowser();
+        materialChanged = true;
+    }
+
+    if (materialChanged || saveMaterial)
+    {
+        clearInactiveTextureSlots();
+        UpdateMaterialRuntimeBindings(mat);
+        for (auto& obj : Objects)
+        {
+            if (obj.MaterialIndex == EditingMaterialIndex)
+                ApplyMaterialAssetToSceneObject(obj, EditingMaterialIndex);
+        }
+        if (bAssetPreviewActive && AssetPreviewMaterialIndex == EditingMaterialIndex)
+            PreviewMaterialAsset(EditingMaterialIndex, false);
+        MarkLevelDirty();
+    }
+    if (saveMaterial)
+        SaveMaterialAsset(EditingMaterialIndex);
+    ImGui::End();
+}
+
+void FEngine::DrawImGuiGizmo()
+{
+    if (SelectedIndex < 0 || SelectedIndex >= (int)Objects.size())
+        return;
+    if (ImGuiViewportW <= 1 || ImGuiViewportH <= 1)
+        return;
+
+    using namespace DirectX;
+    FSceneObject& obj = Objects[(size_t)SelectedIndex];
+    const XMMATRIX view = Camera.GetViewMatrix();
+    const float aspect = (float)ImGuiViewportW / (float)std::max(1, ImGuiViewportH);
+    const XMMATRIX proj = XMMatrixPerspectiveFovLH(XM_PIDIV4, aspect, 0.1f, 100.0f);
+    const XMMATRIX world = XMMatrixScaling(obj.Scale.x, obj.Scale.y, obj.Scale.z) * XMMatrixTranslation(obj.Position.x, obj.Position.y, obj.Position.z);
+    XMFLOAT4X4 viewM{}, projM{}, worldM{};
+    XMStoreFloat4x4(&viewM, view);
+    XMStoreFloat4x4(&projM, proj);
+    XMStoreFloat4x4(&worldM, world);
+    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetDrawlist();
+    ImGuizmo::SetRect((float)ImGuiViewportScreenX, (float)ImGuiViewportScreenY, (float)ImGuiViewportW, (float)ImGuiViewportH);
+    const ImGuizmo::OPERATION op = (GizmoMode == EGizmoMode::Scale) ? ImGuizmo::SCALE : ImGuizmo::TRANSLATE;
+    if (ImGuizmo::Manipulate(&viewM._11, &projM._11, op, ImGuizmo::WORLD, &worldM._11))
+    {
+        float tr[3]{}, rot[3]{}, sc[3]{};
+        ImGuizmo::DecomposeMatrixToComponents(&worldM._11, tr, rot, sc);
+        obj.Position = { tr[0], tr[1], tr[2] };
+        obj.Scale = { std::max(0.01f, sc[0]), std::max(0.01f, sc[1]), std::max(0.01f, sc[2]) };
+        MarkLevelDirty();
+    }
+}
+
+void FEngine::DrawImGuiEditor()
+{
+    if (!bImGuiInitialized)
+        return;
+
+    DrawImGuiMainMenu();
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGuiWindowFlags hostFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+        ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_MenuBar;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::Begin("ShellEngineDockspace", nullptr, hostFlags);
+    ImGui::PopStyleVar(2);
+    const ImGuiID dockspaceId = ImGui::GetID("ShellEngineDockspaceID");
+    if (!ImGui::DockBuilderGetNode(dockspaceId))
+    {
+        ImGui::DockBuilderRemoveNode(dockspaceId);
+        ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
+        ImGuiID dockMain = dockspaceId;
+        ImGuiID dockLeft = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.18f, nullptr, &dockMain);
+        ImGuiID dockRight = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.22f, nullptr, &dockMain);
+        ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.28f, nullptr, &dockMain);
+        ImGui::DockBuilderDockWindow("Place Actors", dockLeft);
+        ImGui::DockBuilderDockWindow("Viewport", dockMain);
+        ImGui::DockBuilderDockWindow("Level Outliner", dockRight);
+        ImGui::DockBuilderDockWindow("Details", dockRight);
+        ImGui::DockBuilderDockWindow("Content Drawer", dockBottom);
+        ImGui::DockBuilderFinish(dockspaceId);
+    }
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_DockingEmptyBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
+    ImGui::PopStyleColor(2);
+    ImGui::End();
+
+    DrawImGuiPlaceActors();
+    DrawImGuiViewport();
+    DrawImGuiOutliner();
+    DrawImGuiDetails();
+    DrawImGuiContentDrawer();
+    DrawImGuiRenderSettings();
+    DrawImGuiMaterialEditor();
+}
+
+void FEngine::RenderImGuiDrawData(ID3D12GraphicsCommandList* cmd)
+{
+    if (!bImGuiInitialized || !cmd)
+        return;
+    ID3D12DescriptorHeap* heaps[] = { ImGuiSrvHeap.Get() };
+    cmd->SetDescriptorHeaps(1, heaps);
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd);
+}
+
+void FEngine::HideLegacyWin32EditorControls()
+{
+    HWND controls[] = {
+        ToolbarPanel, ToolbarTitle, ToolbarNewLevelBtn, ToolbarOpenLevelBtn, ToolbarSaveLevelBtn, ToolbarImportObjBtn, ToolbarPlaceBtn, ToolbarSettingsBtn, StatusLabel,
+        EngineNameLabel, SidebarToggleBtn, SidebarSearchEdit, SidebarList, SidebarBasicLabel, SidebarRenderDocLabel,
+        RenderPathLabel, RenderSettingsLabel, RenderGILabel, SunSectionLabel, AtmosphereSectionLabel, RenderPathCombo, LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox,
+        SkyEnableCheckbox, SunYawLabel, SunYawValueLabel, SunYawSlider, SunPitchLabel, SunPitchValueLabel, SunPitchSlider, SunIntensityLabel, SunIntensityValueLabel, SunIntensitySlider,
+        RayleighLabel, RayleighValueLabel, RayleighSlider, MieLabel, MieValueLabel, MieSlider, MieGLabel, MieGValueLabel, MieGSlider, AtmoHeightLabel, AtmoHeightValueLabel, AtmoHeightSlider, SkyLabel,
+        BottomPanel, ContentTitleLabel, ContentDrawerToggleBtn, TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel, ContentPathLabel, ContentActionsLabel, ContentFoldersList, ContentHintLabel,
+        ContentList, ImportObjBtn, PlaceAssetBtn, NewLevelBtn, OpenLevelBtn, SaveLevelBtn, TextureList, MaterialList, TexturePreview, NewMaterialBtn, TonemapCheckbox,
+        RightPanel, OutlinerLabel, OutlinerList, DetailsLabel, DetailTransformLabel, DetailEnvironmentLabel, DetailNameLabel, DetailPositionLabel, DetailScaleLabel,
+        DetailNameEdit, DetailPosXEdit, DetailPosYEdit, DetailPosZEdit, DetailScaleXEdit, DetailScaleYEdit, DetailScaleZEdit, DetailIntensityLabel, DetailIntensityEdit,
+        DetailSkyEnabledCheckbox, DetailRayleighLabel, DetailRayleighEdit, DetailMieLabel, DetailMieEdit, DetailMieGLabel, DetailMieGEdit, DetailAtmosphereHeightLabel, DetailAtmosphereHeightEdit, ApplyDetailsBtn
+    };
+    for (HWND h : controls)
+        if (h) ShowWindow(h, SW_HIDE);
+}
+
 void FEngine::OpenRenderSettingsDialog()
 {
+    if (bUseImGuiEditor)
+    {
+        bShowImGuiSettings = true;
+        return;
+    }
     if (!RenderSettingsHwnd)
     {
         WNDCLASSEXW wc{};
@@ -3641,6 +4641,23 @@ void FEngine::LayoutUI()
     GetClientRect(Window.GetHwnd(), &rc);
     const int clientW = (int)(rc.right - rc.left);
     const int clientH = (int)(rc.bottom - rc.top);
+    if (bUseImGuiEditor)
+    {
+        HideLegacyWin32EditorControls();
+        if (ViewportHwnd)
+        {
+            SetWindowPos(
+                ViewportHwnd,
+                nullptr,
+                0,
+                0,
+                std::max(1, clientW),
+                std::max(1, clientH),
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+            ShowWindow(ViewportHwnd, SW_SHOW);
+        }
+        return;
+    }
     const int bottomPanelH = bContentDrawerOpen ? ((clientH < 850) ? 160 : BottomPanelHeightPx) : 38;
     const int collapsedSidebarW = 42;
     const int leftPanelW = bPlaceActorsOpen ? SidebarWidthPx : collapsedSidebarW;
@@ -3771,7 +4788,14 @@ void FEngine::LayoutUI()
     // 视口与底部面板布局。
     if (ViewportHwnd)
     {
-        MoveWindow(ViewportHwnd, leftPanelW, contentTop, viewportW, viewportH, TRUE);
+        SetWindowPos(
+            ViewportHwnd,
+            nullptr,
+            leftPanelW,
+            contentTop,
+            viewportW,
+            viewportH,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
     }
 
     const int rightX = leftPanelW + viewportW;
@@ -3961,16 +4985,15 @@ void FEngine::LayoutUI()
     // Do not synchronously resize the D3D12 swapchain from Win32 UI handlers.
     // Some editor-only layout actions can otherwise block the message pump in DXGI.
 
-    // Ensure Win32 panels are visible above the swapchain host window.
-    // (Flip-model swapchains are sensitive to z-order / overlapping child windows.)
-    if (ViewportHwnd)
-        SetWindowPos(ViewportHwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    // Keep resize handling cheap. The editor panels and swapchain child are laid
+    // out into non-overlapping rectangles, so WM_SIZE should not churn child
+    // z-order. Reordering many Win32 controls during resize can block with a
+    // flip-model D3D12 child window on some drivers.
 
     // 将侧栏与底栏控件保持在顶层。
     auto bringTop = [](HWND h)
     {
-        if (!h) return;
-        SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        (void)h;
     };
 
     bringTop(ToolbarPanel);
@@ -4252,8 +5275,16 @@ void FEngine::Tick(float dtSeconds)
 
     // 视口内的选取/放置/Gizmo 拖拽（左键）。
     // Selection + placement + gizmo drag (left mouse) in viewport
-    const uint32 w = RHI.GetWidth();
-    const uint32 h = RHI.GetHeight();
+    const uint32 w = bUseImGuiEditor ? (uint32)std::max(1, ImGuiViewportW) : RHI.GetWidth();
+    const uint32 h = bUseImGuiEditor ? (uint32)std::max(1, ImGuiViewportH) : RHI.GetHeight();
+    if (bUseImGuiEditor && ViewportHwnd)
+    {
+        POINT pt{};
+        GetCursorPos(&pt);
+        ScreenToClient(ViewportHwnd, &pt);
+        MouseX = pt.x - ImGuiViewportX;
+        MouseY = pt.y - ImGuiViewportY;
+    }
     const float aspect = (h == 0) ? 1.0f : (float)w / (float)h;
     const XMMATRIX view = Camera.GetViewMatrix();
     const XMMATRIX proj = XMMatrixPerspectiveFovLH(XM_PIDIV4, aspect, 0.1f, 100.0f);
@@ -4261,7 +5292,8 @@ void FEngine::Tick(float dtSeconds)
     const XMMATRIX invViewProj = XMMatrixInverse(nullptr, viewProj);
 
     static bool prevLDown = false;
-    const bool lDown = Input.Keys[VK_LBUTTON];
+    const bool sceneMouseAvailable = !bUseImGuiEditor || bImGuiViewportHovered || bDragging || bPlacingFromSidebar || bDraggingMaterial;
+    const bool lDown = Input.Keys[VK_LBUTTON] && sceneMouseAvailable;
 
     // 拖拽放置时每帧更新鼠标（非消息驱动）。
     // While dragging from sidebar, follow the mouse every frame (not message-driven).
@@ -4270,8 +5302,8 @@ void FEngine::Tick(float dtSeconds)
         POINT pt{};
         GetCursorPos(&pt);
         ScreenToClient(ViewportHwnd, &pt);
-        MouseX = pt.x;
-        MouseY = pt.y;
+        MouseX = bUseImGuiEditor ? (pt.x - ImGuiViewportX) : pt.x;
+        MouseY = bUseImGuiEditor ? (pt.y - ImGuiViewportY) : pt.y;
     }
 
     // 放置预览（MouseX/Y 已是视口坐标）。
@@ -4314,6 +5346,7 @@ PlacementDone:
         bCommitPlacement = false;
         // 按类型设置默认材质颜色。
         FSceneObject obj = MakeSceneObject(CommitType, PreviewPos);
+        EnsureConcreteMaterialForObject(obj);
         Objects.push_back(obj);
         SetSelectedIndex((int)Objects.size() - 1);
         MarkLevelDirty();
@@ -4475,8 +5508,8 @@ PlacementDone:
         POINT pt{};
         GetCursorPos(&pt);
         ScreenToClient(ViewportHwnd, &pt);
-        MouseX = pt.x;
-        MouseY = pt.y;
+        MouseX = bUseImGuiEditor ? (pt.x - ImGuiViewportX) : pt.x;
+        MouseY = bUseImGuiEditor ? (pt.y - ImGuiViewportY) : pt.y;
     }
 }
 
@@ -4517,7 +5550,6 @@ void FEngine::Run(HINSTANCE hInstance)
     // 创建主窗口与侧栏、视口基础。
     const wchar_t* baseTitle = L"ShellEngine";
     Window.Create(hInstance, 1280, 720, baseTitle, &FEngine::WindowMessageHandler, this);
-    Window.Show(SW_SHOW);
     DragAcceptFiles(Window.GetHwnd(), TRUE);
 
     ToolbarPanel = CreateWindowExW(0, L"STATIC", nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 1280, TopToolbarHeightPx, Window.GetHwnd(), MenuHandle(5300), GetModuleHandleW(nullptr), nullptr);
@@ -4746,16 +5778,20 @@ void FEngine::Run(HINSTANCE hInstance)
 
         RECT rc{};
         GetClientRect(Window.GetHwnd(), &rc);
-        const int vw = std::max(1, (int)(rc.right - rc.left) - SidebarWidthPx - RightPanelWidthPx);
-        const int vh = std::max(1, (int)(rc.bottom - rc.top) - TopToolbarHeightPx - BottomPanelHeightPx);
+        const int clientW = std::max(1, (int)(rc.right - rc.left));
+        const int clientH = std::max(1, (int)(rc.bottom - rc.top));
+        const int vx = bUseImGuiEditor ? 0 : SidebarWidthPx;
+        const int vy = bUseImGuiEditor ? 0 : TopToolbarHeightPx;
+        const int vw = bUseImGuiEditor ? clientW : std::max(1, clientW - SidebarWidthPx - RightPanelWidthPx);
+        const int vh = bUseImGuiEditor ? clientH : std::max(1, clientH - TopToolbarHeightPx - BottomPanelHeightPx);
 
         ViewportHwnd = CreateWindowExW(
             0,
             wc.lpszClassName,
             nullptr,
-            WS_CHILD | WS_VISIBLE,
-            SidebarWidthPx,
-            TopToolbarHeightPx,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+            vx,
+            vy,
             vw,
             vh,
             Window.GetHwnd(),
@@ -5023,9 +6059,12 @@ void FEngine::Run(HINSTANCE hInstance)
         RHI.Init(ViewportHwnd, vw, vh);
     }
     Renderer.Init(RHI);
+    if (bUseImGuiEditor)
+        InitImGuiEditor();
     RefreshContentBrowser();
     MigrateContentMaterialsToV2();
     LoadContentMaterials();
+    EnsureConcreteMaterialsForRenderableObjects();
 
     // 初始化后同步 HWRT 可用性与 UI。
     // Update HWRT UI availability after renderer init.
@@ -5060,6 +6099,9 @@ void FEngine::Run(HINSTANCE hInstance)
     }
 
     // 主循环：消息泵 + 帧更新与渲染。
+    Window.Show(SW_SHOW);
+    UpdateWindow(Window.GetHwnd());
+
     MSG msg{};
     while (bRunning)
     {
@@ -5076,6 +6118,12 @@ void FEngine::Run(HINSTANCE hInstance)
         const float dt = float(nowMs - PrevTickMs) / 1000.0f;
         PrevTickMs = nowMs;
         Tick(dt);
+        if (bUseImGuiEditor && bImGuiInitialized)
+        {
+            BeginImGuiEditorFrame();
+            DrawImGuiEditor();
+            ImGui::Render();
+        }
 
         // 计算光源方向并传入渲染器。
         const float t = float(nowMs - StartTickMs) / 1000.0f;
@@ -5143,7 +6191,7 @@ void FEngine::Run(HINSTANCE hInstance)
             bEnableLumenSWRT,
             bEnableLumenHWRT,
             *renderObjects,
-            SelectedIndex,
+            bUseImGuiEditor ? -1 : SelectedIndex,
             GizmoMode == EGizmoMode::Scale,
             lightDirWs,
             bEnableTonemap,
@@ -5151,7 +6199,12 @@ void FEngine::Run(HINSTANCE hInstance)
             activeSky,
             0,
             bPlacingFromSidebar ? &PreviewPos : nullptr,
-            bPlacingFromSidebar ? PaletteType : FSceneObject::EType::Sphere);
+            bPlacingFromSidebar ? PaletteType : FSceneObject::EType::Sphere,
+            bUseImGuiEditor ? ImGuiViewportX : 0,
+            bUseImGuiEditor ? ImGuiViewportY : 0,
+            bUseImGuiEditor ? ImGuiViewportW : 0,
+            bUseImGuiEditor ? ImGuiViewportH : 0,
+            bUseImGuiEditor ? std::function<void(ID3D12GraphicsCommandList*)>([this](ID3D12GraphicsCommandList* cmd) { RenderImGuiDrawData(cmd); }) : std::function<void(ID3D12GraphicsCommandList*)>{});
 
         // 更新窗口标题以展示选中信息。
         // Window title shows selected object position (minimal UE-like feedback)
@@ -5161,6 +6214,7 @@ void FEngine::Run(HINSTANCE hInstance)
 
     // 退出前等待 GPU 完成并释放资源。
     RHI.WaitForGPU();
+    ShutdownImGuiEditor();
     Renderer.Shutdown();
     RHI.Shutdown();
 
