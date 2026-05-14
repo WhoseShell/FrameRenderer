@@ -254,6 +254,7 @@ void FD3D12RHI::Init(HWND hwnd, uint32 width, uint32 height)
     ThrowIfFailed(Factory->CreateSwapChainForHwnd(Queue.Get(), Hwnd, &scDesc, nullptr, nullptr, &sc1),
                   "CreateSwapChainForHwnd failed");
     ThrowIfFailed(sc1.As(&Swapchain), "Swapchain cast failed");
+    ThrowIfFailed(Factory->MakeWindowAssociation(Hwnd, DXGI_MWA_NO_ALT_ENTER), "MakeWindowAssociation failed");
 
     FrameIndex = Swapchain->GetCurrentBackBufferIndex();
 
@@ -324,6 +325,9 @@ void FD3D12RHI::Resize(uint32 width, uint32 height)
     // 调整交换链缓冲区并重新创建 RTV/DSV。
     ThrowIfFailed(Swapchain->ResizeBuffers(kFrameCount, Width, Height, GetBackBufferFormat(), 0), "ResizeBuffers failed");
     FrameIndex = Swapchain->GetCurrentBackBufferIndex();
+    const uint64 nextFenceValue = Fence ? (Fence->GetCompletedValue() + 1) : 1;
+    for (uint32 i = 0; i < kFrameCount; ++i)
+        FenceValue[i] = nextFenceValue;
 
     CreateSwapchainResources();
     CreateDepthResources();

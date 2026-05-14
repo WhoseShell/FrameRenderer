@@ -926,6 +926,7 @@ void FEngine::SyncViewportBackbufferSize()
     const uint32 height = (uint32)std::max(1L, rc.bottom - rc.top);
     if (width == RHI.GetWidth() && height == RHI.GetHeight())
     {
+        bForceViewportBackbufferResize = false;
         PendingViewportWidth = 0;
         PendingViewportHeight = 0;
         PendingViewportResizeTickMs = 0;
@@ -933,6 +934,23 @@ void FEngine::SyncViewportBackbufferSize()
     }
 
     const uint64 nowMs = GetTickCount64();
+    if (bForceViewportBackbufferResize)
+    {
+        bForceViewportBackbufferResize = false;
+        PendingViewportWidth = width;
+        PendingViewportHeight = height;
+        PendingViewportResizeTickMs = nowMs;
+        LastViewportResizeTickMs = nowMs;
+        RHI.Resize(width, height);
+        if (width == RHI.GetWidth() && height == RHI.GetHeight())
+        {
+            PendingViewportWidth = 0;
+            PendingViewportHeight = 0;
+            PendingViewportResizeTickMs = 0;
+        }
+        return;
+    }
+
     if (width != PendingViewportWidth || height != PendingViewportHeight)
     {
         PendingViewportWidth = width;
@@ -941,6 +959,8 @@ void FEngine::SyncViewportBackbufferSize()
         return;
     }
 
+    if (bWindowSizeMoveActive)
+        return;
     if (nowMs - PendingViewportResizeTickMs < ViewportResizeDebounceMs)
         return;
     if (nowMs - LastViewportResizeTickMs < ViewportResizeRetryMs)
@@ -954,6 +974,24 @@ void FEngine::SyncViewportBackbufferSize()
         PendingViewportHeight = 0;
         PendingViewportResizeTickMs = 0;
     }
+}
+
+void FEngine::RequestImmediateViewportBackbufferResize()
+{
+    bForceViewportBackbufferResize = true;
+    PendingViewportWidth = 0;
+    PendingViewportHeight = 0;
+    PendingViewportResizeTickMs = 0;
+    LastViewportResizeTickMs = 0;
+}
+
+void FEngine::ToggleMaximizedWindow()
+{
+    HWND mainHwnd = Window.GetHwnd();
+    if (!mainHwnd)
+        return;
+    ShowWindow(mainHwnd, IsZoomed(mainHwnd) ? SW_RESTORE : SW_MAXIMIZE);
+    RequestImmediateViewportBackbufferResize();
 }
 
 /**
@@ -1257,6 +1295,12 @@ LRESULT CALLBACK FEngine::ToolbarSettingsWndProc(HWND hwnd, UINT msg, WPARAM wPa
  */
 LRESULT FEngine::HandleViewportMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if (msg == WM_SYSKEYDOWN && wParam == VK_RETURN && (HIWORD(lParam) & KF_ALTDOWN))
+    {
+        ToggleMaximizedWindow();
+        return 0;
+    }
+
     if (bImGuiInitialized)
     {
         ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
@@ -1801,8 +1845,30 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         break;
     }
-    case WM_SIZE:
+    case WM_ENTERSIZEMOVE:
+        bWindowSizeMoveActive = true;
+        return 0;
+    case WM_EXITSIZEMOVE:
+        bWindowSizeMoveActive = false;
         LayoutUI();
+        RequestImmediateViewportBackbufferResize();
+        return 0;
+    case WM_SYSKEYDOWN:
+        if (wParam == VK_RETURN && (HIWORD(lParam) & KF_ALTDOWN))
+        {
+            ToggleMaximizedWindow();
+            return 0;
+        }
+        break;
+    case WM_SIZE:
+        if (wParam == SIZE_MINIMIZED)
+        {
+            bForceViewportBackbufferResize = false;
+            return 0;
+        }
+        LayoutUI();
+        if (wParam == SIZE_MAXIMIZED || !bWindowSizeMoveActive)
+            RequestImmediateViewportBackbufferResize();
         return 0;
     case WM_ERASEBKGND:
     {

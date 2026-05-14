@@ -23,10 +23,12 @@ public static class ImGuiSmokeWin32 {
     [DllImport("user32.dll")] public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
     [DllImport("user32.dll")] public static extern int GetClassNameW(IntPtr hWnd, StringBuilder text, int maxCount);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsHungAppWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
@@ -37,10 +39,16 @@ public static class ImGuiSmokeWin32 {
 "@
 
 $WM_CLOSE = 0x0010
+$WM_SYSKEYDOWN = 0x0104
+$WM_SYSKEYUP = 0x0105
+$VK_RETURN = 0x0D
+$ALT_KEY_LPARAM = [IntPtr]0x20000000
 $MOUSEEVENTF_LEFTDOWN = 0x0002
 $MOUSEEVENTF_LEFTUP = 0x0004
 $SWP_NOZORDER = 0x0004
 $SWP_SHOWWINDOW = 0x0040
+$SW_MAXIMIZE = 3
+$SW_RESTORE = 9
 
 $script:LastAction = "startup"
 $script:HadFailure = $true
@@ -77,6 +85,24 @@ function Get-WindowRectText([IntPtr]$hwnd) {
         return "rect=unavailable"
     }
     return ("rect={0},{1},{2},{3}" -f $rect.Left, $rect.Top, ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top))
+}
+
+function Get-ClientSize([IntPtr]$hwnd) {
+    [ImGuiSmokeWin32+RECT]$rect = New-Object ImGuiSmokeWin32+RECT
+    if (-not [ImGuiSmokeWin32]::GetClientRect($hwnd, [ref]$rect)) {
+        return @{ W = 0; H = 0 }
+    }
+    return @{ W = [Math]::Max(0, $rect.Right - $rect.Left); H = [Math]::Max(0, $rect.Bottom - $rect.Top) }
+}
+
+function Get-BmpSize([string]$path) {
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    if ($bytes.Length -lt 26 -or $bytes[0] -ne 0x42 -or $bytes[1] -ne 0x4d) {
+        throw "not a BMP file: $path"
+    }
+    $w = [BitConverter]::ToInt32($bytes, 18)
+    $h = [Math]::Abs([BitConverter]::ToInt32($bytes, 22))
+    return @{ W = $w; H = $h }
 }
 
 function Get-TopWindowsForPid([int]$targetPid) {
@@ -188,6 +214,26 @@ function Do-Resize($proc, [IntPtr]$main, [int]$width, [int]$height, [string]$lab
     Assert-Responsive $proc $main $label
 }
 
+function Do-ShowWindow($proc, [IntPtr]$main, [int]$cmd, [string]$label) {
+    $script:LastAction = $label
+    Log-Step ("DO  " + $label)
+    [void][ImGuiSmokeWin32]::ShowWindow($main, $cmd)
+    Assert-Responsive $proc $main $label
+    $size = Get-ClientSize $main
+    Log-Step ("OK  {0} client={1}x{2}" -f $label, $size.W, $size.H)
+}
+
+function Do-AltEnter($proc, [IntPtr]$main, [string]$label) {
+    $script:LastAction = $label
+    Log-Step ("DO  " + $label)
+    [void][ImGuiSmokeWin32]::PostMessageW($main, $WM_SYSKEYDOWN, [IntPtr]$VK_RETURN, $ALT_KEY_LPARAM)
+    Start-Sleep -Milliseconds 60
+    [void][ImGuiSmokeWin32]::PostMessageW($main, $WM_SYSKEYUP, [IntPtr]$VK_RETURN, $ALT_KEY_LPARAM)
+    Assert-Responsive $proc $main $label
+    $size = Get-ClientSize $main
+    Log-Step ("OK  {0} client={1}x{2}" -f $label, $size.W, $size.H)
+}
+
 function Stop-TestProcess($proc, [IntPtr]$main) {
     if ($null -eq $proc) { return }
     try {
@@ -227,6 +273,51 @@ function Test-LaunchCycles() {
     Log-Step ("PASS launch/close cycles x" + $LaunchCycles)
 }
 
+function Test-MaximizeBackbufferCapture() {
+    $repo = Split-Path $PSScriptRoot -Parent
+    $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) ("shellengine_maximize_capture_{0}_{1}.bmp" -f $PID, [Guid]::NewGuid().ToString("N"))
+    Remove-Item -LiteralPath $capturePath -Force -ErrorAction SilentlyContinue
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $ExePath
+    $psi.WorkingDirectory = $repo
+    $psi.UseShellExecute = $false
+    $psi.EnvironmentVariables["SHELLENGINE_CAPTURE_FRAME_PATH"] = $capturePath
+    $psi.EnvironmentVariables["SHELLENGINE_CAPTURE_FRAME_INDEX"] = "160"
+
+    $stateProc = $null
+    $stateMain = [IntPtr]::Zero
+    try {
+        $script:LastAction = "maximize backbuffer capture startup"
+        $stateProc = [System.Diagnostics.Process]::Start($psi)
+        $stateMain = Find-MainWindow $stateProc
+        Assert-Responsive $stateProc $stateMain "maximize capture launch"
+
+        Do-ShowWindow $stateProc $stateMain $SW_MAXIMIZE "maximize capture window"
+        $client = Get-ClientSize $stateMain
+
+        for ($i = 0; $i -lt 120 -and -not (Test-Path -LiteralPath $capturePath); ++$i) {
+            Assert-Responsive $stateProc $stateMain ("waiting maximize capture {0}" -f $i)
+            Start-Sleep -Milliseconds 80
+        }
+        if (-not (Test-Path -LiteralPath $capturePath)) {
+            throw "maximize backbuffer capture was not produced"
+        }
+
+        $bmp = Get-BmpSize $capturePath
+        if ($client.W -lt 1200 -or $client.H -lt 700) {
+            throw ("maximized client unexpectedly small: {0}x{1}" -f $client.W, $client.H)
+        }
+        if ([Math]::Abs($bmp.W - $client.W) -gt 1 -or [Math]::Abs($bmp.H - $client.H) -gt 1) {
+            throw ("maximized backbuffer size mismatch: bmp={0}x{1} client={2}x{3}" -f $bmp.W, $bmp.H, $client.W, $client.H)
+        }
+        Log-Step ("PASS maximize backbuffer capture {0}x{1}" -f $bmp.W, $bmp.H)
+    } finally {
+        Stop-TestProcess $stateProc $stateMain
+        Remove-Item -LiteralPath $capturePath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 if (-not (Test-Path -LiteralPath $ExePath)) {
     throw "exe not found: $ExePath"
 }
@@ -235,10 +326,20 @@ $proc = $null
 $main = [IntPtr]::Zero
 try {
     Test-LaunchCycles
+    Test-MaximizeBackbufferCapture
 
     $state = Start-TestApp 1280 760 "launch and resize 1280x760"
     $proc = $state.Proc
     $main = $state.Main
+
+    Do-ShowWindow $proc $main $SW_MAXIMIZE "maximize main editor"
+    $maxClient = Get-ClientSize $main
+    Do-Click $proc $main "viewport click after maximize" ([Math]::Max(420, [int]($maxClient.W * 0.50))) ([Math]::Max(220, [int]($maxClient.H * 0.38)))
+    Do-Click $proc $main "outliner click after maximize" ([Math]::Max(900, $maxClient.W - 220)) 82
+    Do-ShowWindow $proc $main $SW_RESTORE "restore main editor"
+    Do-AltEnter $proc $main "Alt+Enter maximize route"
+    Do-AltEnter $proc $main "Alt+Enter restore route"
+    Do-Resize $proc $main 1280 760 "resize after fullscreen routes"
 
     for ($i = 1; $i -le 3; ++$i) {
         Do-Click $proc $main ("open File menu repeat {0}" -f $i) 18 10

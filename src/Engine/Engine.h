@@ -63,6 +63,8 @@ private:
      */
     void LayoutUI();
     void SyncViewportBackbufferSize();
+    void RequestImmediateViewportBackbufferResize();
+    void ToggleMaximizedWindow();
     void InitImGuiEditor();
     void ShutdownImGuiEditor();
     void BeginImGuiEditorFrame();
@@ -407,6 +409,8 @@ private:
     uint32 PendingViewportHeight = 0;
     uint64 PendingViewportResizeTickMs = 0;
     uint64 LastViewportResizeTickMs = 0;
+    bool bForceViewportBackbufferResize = false;
+    bool bWindowSizeMoveActive = false;
     static constexpr uint64 ViewportResizeDebounceMs = 250;
     static constexpr uint64 ViewportResizeRetryMs = 500;
     /**
