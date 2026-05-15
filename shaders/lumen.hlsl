@@ -17,6 +17,9 @@ cbuffer LumenCB : register(b0)
     float  g_lightIntensity;
 
     float2 g_invResolution;
+    float2 g_viewportOrigin;
+
+    float2 g_viewportSize;
     float  g_stepSize;
     float  g_intensity;
 
@@ -35,6 +38,16 @@ TextureCube g_skyPrefilter : register(t26);
 StructuredBuffer<float4> g_skySH : register(t27);
 
 SamplerState g_samp : register(s0);
+
+float2 ViewportUVToFullUV(float2 uv)
+{
+    return (g_viewportOrigin + uv * g_viewportSize) * g_invResolution;
+}
+
+int2 ViewportUVToPixel(float2 uv)
+{
+    return int2(g_viewportOrigin + uv * g_viewportSize);
+}
 
 struct VSFullOut
 {
@@ -171,10 +184,11 @@ bool TraceScreen(float3 origin, float3 dir, out float2 hitUv)
             return false;
 
         // 通过 GBuffer 深度/位置判断是否命中。
-        float4 gb1 = g_gbuffer1.SampleLevel(g_samp, uv, 0);
+        float2 fullUv = ViewportUVToFullUV(uv);
+        float4 gb1 = g_gbuffer1.SampleLevel(g_samp, fullUv, 0);
         if (gb1.a > 0.0)
         {
-            float3 posS = g_gbuffer2.SampleLevel(g_samp, uv, 0).xyz;
+            float3 posS = g_gbuffer2.SampleLevel(g_samp, fullUv, 0).xyz;
             float d = length(posS - p);
             if (d < (g_stepSize * 2.0))
             {
@@ -197,9 +211,10 @@ bool TraceScreen(float3 origin, float3 dir, out float2 hitUv)
  */
 float3 ShadeHit(float2 uv, float3 toViewerDir)
 {
-    float4 hb0 = g_gbuffer0.SampleLevel(g_samp, uv, 0);
-    float4 hb1 = g_gbuffer1.SampleLevel(g_samp, uv, 0);
-    float4 hb2 = g_gbuffer2.SampleLevel(g_samp, uv, 0);
+    float2 fullUv = ViewportUVToFullUV(uv);
+    float4 hb0 = g_gbuffer0.SampleLevel(g_samp, fullUv, 0);
+    float4 hb1 = g_gbuffer1.SampleLevel(g_samp, fullUv, 0);
+    float4 hb2 = g_gbuffer2.SampleLevel(g_samp, fullUv, 0);
 
     float valid = hb1.a;
     if (valid <= 0.0)
@@ -253,9 +268,10 @@ PSLumenOut PSLumen(VSFullOut i)
     o.AddHDR = float4(0.0, 0.0, 0.0, 0.0);
     o.History = float4(0.0, 0.0, 0.0, 0.0);
 
-    float4 gb0 = g_gbuffer0.SampleLevel(g_samp, i.uv, 0);
-    float4 gb1 = g_gbuffer1.SampleLevel(g_samp, i.uv, 0);
-    float4 gb2 = g_gbuffer2.SampleLevel(g_samp, i.uv, 0);
+    int2 pixel = int2(i.posH.xy);
+    float4 gb0 = g_gbuffer0.Load(int3(pixel, 0));
+    float4 gb1 = g_gbuffer1.Load(int3(pixel, 0));
+    float4 gb2 = g_gbuffer2.Load(int3(pixel, 0));
 
     float valid = gb1.a;
     if (valid <= 0.0)
@@ -284,7 +300,7 @@ PSLumenOut PSLumen(VSFullOut i)
         float2 hitUv;
         if (TraceScreen(posW + N * 0.02, D, hitUv))
         {
-            float3 hitPos = g_gbuffer2.SampleLevel(g_samp, hitUv, 0).xyz;
+            float3 hitPos = g_gbuffer2.SampleLevel(g_samp, ViewportUVToFullUV(hitUv), 0).xyz;
             float3 toViewer = (posW - hitPos);
             float3 hitRadiance = ShadeHit(hitUv, toViewer);
 
@@ -309,7 +325,7 @@ PSLumenOut PSLumen(VSFullOut i)
         float2 hitUv;
         if (TraceScreen(posW + N * 0.02, D, hitUv))
         {
-            float3 hitPos = g_gbuffer2.SampleLevel(g_samp, hitUv, 0).xyz;
+            float3 hitPos = g_gbuffer2.SampleLevel(g_samp, ViewportUVToFullUV(hitUv), 0).xyz;
             float3 toViewer = (posW - hitPos);
             reflection = ShadeHit(hitUv, toViewer);
         }
@@ -337,7 +353,7 @@ PSLumenOut PSLumen(VSFullOut i)
             float2 uvPrev = float2(ndcPrev.x * 0.5 + 0.5, -ndcPrev.y * 0.5 + 0.5);
             if (all(uvPrev >= 0.0) && all(uvPrev <= 1.0))
             {
-                float4 prev = SampleHistory(uvPrev, g_prevHistoryIndex);
+                float4 prev = SampleHistory(ViewportUVToFullUV(uvPrev), g_prevHistoryIndex);
                 accum = lerp(cur, prev.rgb, w);
             }
         }

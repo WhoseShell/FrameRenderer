@@ -155,9 +155,10 @@ VSFullOut VSFullscreen(uint vid : SV_VertexID)
  */
 float4 PSDeferredLighting(VSFullOut i) : SV_Target
 {
-    float4 gb0 = g_gbuffer0.Sample(g_samp, i.uv);
-    float4 gb1 = g_gbuffer1.Sample(g_samp, i.uv);
-    float4 gb2 = g_gbuffer2.Sample(g_samp, i.uv);
+    int2 pixel = int2(i.posH.xy);
+    float4 gb0 = g_gbuffer0.Load(int3(pixel, 0));
+    float4 gb1 = g_gbuffer1.Load(int3(pixel, 0));
+    float4 gb2 = g_gbuffer2.Load(int3(pixel, 0));
 
     const float valid = gb1.a;
     if (valid <= 0.0)

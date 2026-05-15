@@ -222,7 +222,8 @@ private:
     void UpdateDeferredCB(const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs, float sunIntensity, uint32 frameIndex);
     void UpdateShadowCB(const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs, uint32 frameIndex);
     void UpdateLumenCB(FD3D12RHI& rhi, bool bUseLumen, const DirectX::XMFLOAT4X4& curViewProj, const DirectX::XMFLOAT3& cameraPosWs,
-                       const DirectX::XMFLOAT3& lightDirWs, float sunIntensity, float timeSeconds, uint32 frameIndex);
+                       const DirectX::XMFLOAT3& lightDirWs, float sunIntensity, float timeSeconds, uint32 frameIndex,
+                       const D3D12_VIEWPORT& viewport);
     uint32 UpdateSWRTGICBAndObjects(FD3D12RHI& rhi, bool bUseSWRT, const DirectX::XMFLOAT4X4& curViewProj, const DirectX::XMFLOAT3& cameraPosWs,
                                    const DirectX::XMFLOAT3& lightDirWs, float sunIntensity, float timeSeconds, uint32 frameIndex,
                                    const std::vector<FSceneObject>& objects, const DirectX::XMFLOAT3* previewPos, FSceneObject::EType previewType);
@@ -511,6 +512,8 @@ private:
         DirectX::XMFLOAT3 LightColor;
         float LightIntensity = 1.0f;
         DirectX::XMFLOAT2 InvResolution;
+        DirectX::XMFLOAT2 ViewportOrigin;
+        DirectX::XMFLOAT2 ViewportSize;
         float StepSize = 0.25f;
         float Intensity = 1.0f;
         float FrameIndex = 0.0f;

@@ -109,17 +109,19 @@ float4 ReadMeta(float2 giUv)
  */
 float4 PSAddGI(VSFullOut i) : SV_Target
 {
-    float4 gb1 = g_gbuffer1.Sample(g_samp, i.uv);
+    int2 pixel = int2(i.posH.xy);
+    float2 fullUv = (float2(pixel) + 0.5) * g_invFullResolution;
+    float4 gb1 = g_gbuffer1.Load(int3(pixel, 0));
     const float valid = gb1.a;
     if (valid <= 0.0)
         return float4(0.0, 0.0, 0.0, 0.0);
 
     float3 N = normalize(gb1.xyz);
-    float3 posW = g_gbuffer2.Sample(g_samp, i.uv).xyz;
+    float3 posW = g_gbuffer2.Load(int3(pixel, 0)).xyz;
     float depth = max(length(posW - g_cameraPosWs), 1e-3);
 
     float2 giDim = 1.0 / max(g_invGIResolution, float2(1e-6, 1e-6));
-    float2 giPos = i.uv * giDim - 0.5;
+    float2 giPos = fullUv * giDim - 0.5;
     int2 base = int2(floor(giPos));
     float2 f = frac(giPos);
 
@@ -155,6 +157,6 @@ float4 PSAddGI(VSFullOut i) : SV_Target
         }
     }
 
-    float3 outGI = (wsum > 1e-4) ? (sum / wsum) : ReadGI(i.uv);
+    float3 outGI = (wsum > 1e-4) ? (sum / wsum) : ReadGI(fullUv);
     return float4(outGI, 1.0);
 }

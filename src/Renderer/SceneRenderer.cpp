@@ -175,7 +175,7 @@ void FSceneRenderer::Render()
 
     // Lumen 参数与 GI 相关更新。
     Renderer.UpdateLumenCB(rhi, bUseLumen, ViewInfo.ViewProj, View.Camera->Position, View.LightDirWs,
-                           ViewFamily.SunIntensity, View.TimeSeconds, Frame.FrameIndex);
+                           ViewFamily.SunIntensity, View.TimeSeconds, Frame.FrameIndex, ViewInfo.Viewport);
 
     bUseHWRTGI = (bUseLumen && ViewFamily.bEnableLumenHWRT && Renderer.bRaytracingSupported && Renderer.HWRTGIPSO &&
                   Renderer.HWRTGIFilterPSO && Renderer.HWRTGIAddPSO && Renderer.HWRTGIRootSig && Renderer.HWRTGIAddRootSig);

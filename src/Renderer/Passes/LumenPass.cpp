@@ -128,7 +128,8 @@ void FSimpleSceneRenderer::UpdateLumenCB(
     const DirectX::XMFLOAT3& lightDirWs,
     float sunIntensity,
     float timeSeconds,
-    uint32 frameIndex)
+    uint32 frameIndex,
+    const D3D12_VIEWPORT& viewport)
 {
     if (!bUseLumen || !CBMappedLumen[frameIndex])
         return;
@@ -147,6 +148,8 @@ void FSimpleSceneRenderer::UpdateLumenCB(
     lcb.LightColor = { 1.0f, 0.98f, 0.92f };
     lcb.LightIntensity = sunIntensity;
     lcb.InvResolution = { 1.0f / std::max(1.0f, (float)rhi.GetWidth()), 1.0f / std::max(1.0f, (float)rhi.GetHeight()) };
+    lcb.ViewportOrigin = { viewport.TopLeftX, viewport.TopLeftY };
+    lcb.ViewportSize = { std::max(1.0f, viewport.Width), std::max(1.0f, viewport.Height) };
     lcb.StepSize = 0.25f;
     lcb.Intensity = 1.0f;
     lcb.FrameIndex = timeSeconds * 60.0f;
