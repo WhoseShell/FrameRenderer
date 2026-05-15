@@ -533,6 +533,8 @@ private:
     bool bShowImGuiMaterialEditor = false;
     bool bImGuiViewportHovered = false;
     bool bImGuiViewportFocused = false;
+    bool bImGuizmoHovered = false;
+    bool bImGuizmoUsing = false;
     int ImGuiViewportScreenX = 0;
     int ImGuiViewportScreenY = 0;
     int ImGuiViewportX = 0;

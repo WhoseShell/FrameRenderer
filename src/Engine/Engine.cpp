@@ -729,6 +729,71 @@ static bool ProjectToScreen(
     return true;
 }
 
+static int PickEditorGizmoAxis2D(
+    int mouseX,
+    int mouseY,
+    const DirectX::XMVECTOR& center,
+    const DirectX::XMMATRIX& viewProj,
+    uint32 width,
+    uint32 height,
+    bool& outNearGizmo)
+{
+    using namespace DirectX;
+    outNearGizmo = false;
+
+    float x0 = 0.0f;
+    float y0 = 0.0f;
+    if (!ProjectToScreen(center, viewProj, width, height, x0, y0))
+        return 0;
+
+    constexpr float kPivotPickPx = 22.0f;
+    constexpr float kAxisPickPx = 16.0f;
+    constexpr float kAxisScreenLenPx = 120.0f;
+    constexpr float kProbeWorldLen = 1.0f;
+
+    const float pivotDx = float(mouseX) - x0;
+    const float pivotDy = float(mouseY) - y0;
+    if ((pivotDx * pivotDx + pivotDy * pivotDy) <= (kPivotPickPx * kPivotPickPx))
+        outNearGizmo = true;
+
+    int bestAxis = 0;
+    float bestDist = 1e9f;
+    auto testAxis = [&](int axis, const XMVECTOR& worldOffset)
+    {
+        float xa = 0.0f;
+        float ya = 0.0f;
+        if (!ProjectToScreen(XMVectorAdd(center, worldOffset), viewProj, width, height, xa, ya))
+            return;
+
+        float vx = xa - x0;
+        float vy = ya - y0;
+        const float len = std::sqrtf(vx * vx + vy * vy);
+        if (len < 1e-3f)
+            return;
+
+        vx /= len;
+        vy /= len;
+        const float x1 = x0 + vx * kAxisScreenLenPx;
+        const float y1 = y0 + vy * kAxisScreenLenPx;
+        const float dist = DistancePointToSegment2D(float(mouseX), float(mouseY), x0, y0, x1, y1);
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+            bestAxis = axis;
+        }
+    };
+
+    testAxis(1, XMVectorSet(kProbeWorldLen, 0.0f, 0.0f, 0.0f));
+    testAxis(2, XMVectorSet(0.0f, kProbeWorldLen, 0.0f, 0.0f));
+    testAxis(3, XMVectorSet(0.0f, 0.0f, kProbeWorldLen, 0.0f));
+    if (bestDist <= kAxisPickPx)
+    {
+        outNearGizmo = true;
+        return bestAxis;
+    }
+    return 0;
+}
+
 /**
  * @brief 计算轴线与射线之间最近点在轴线上的参数值。
  * @param axisOrigin 轴线起点。
@@ -3995,9 +4060,10 @@ void FEngine::DrawImGuiViewport()
     ImGuiViewportY = std::max(0, (int)std::floor(origin.y - displayPos.y));
     ImGuiViewportW = std::max(1, (int)std::floor(avail.x));
     ImGuiViewportH = std::max(1, (int)std::floor(avail.y));
-    ImGui::InvisibleButton("SceneViewportHitArea", avail, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-    bImGuiViewportHovered = bImGuiViewportHovered || ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    bImGuizmoHovered = false;
+    bImGuizmoUsing = false;
     DrawImGuiGizmo();
+    ImGui::Dummy(avail);
     ImGui::End();
     ImGui::PopStyleVar();
 }
@@ -4478,9 +4544,17 @@ void FEngine::DrawImGuiMaterialEditor()
 void FEngine::DrawImGuiGizmo()
 {
     if (SelectedIndex < 0 || SelectedIndex >= (int)Objects.size())
+    {
+        bImGuizmoHovered = false;
+        bImGuizmoUsing = false;
         return;
+    }
     if (ImGuiViewportW <= 1 || ImGuiViewportH <= 1)
+    {
+        bImGuizmoHovered = false;
+        bImGuizmoUsing = false;
         return;
+    }
 
     using namespace DirectX;
     FSceneObject& obj = Objects[(size_t)SelectedIndex];
@@ -4496,7 +4570,7 @@ void FEngine::DrawImGuiGizmo()
     ImGuizmo::SetDrawlist();
     ImGuizmo::SetRect((float)ImGuiViewportScreenX, (float)ImGuiViewportScreenY, (float)ImGuiViewportW, (float)ImGuiViewportH);
     const ImGuizmo::OPERATION op = (GizmoMode == EGizmoMode::Scale) ? ImGuizmo::SCALE : ImGuizmo::TRANSLATE;
-    if (ImGuizmo::Manipulate(&viewM._11, &projM._11, op, ImGuizmo::WORLD, &worldM._11))
+    if (ImGuizmo::Manipulate(&viewM._11, &projM._11, op, ImGuizmo::WORLD, &worldM._11) && !bDragging)
     {
         float tr[3]{}, rot[3]{}, sc[3]{};
         ImGuizmo::DecomposeMatrixToComponents(&worldM._11, tr, rot, sc);
@@ -4504,6 +4578,8 @@ void FEngine::DrawImGuiGizmo()
         obj.Scale = { std::max(0.01f, sc[0]), std::max(0.01f, sc[1]), std::max(0.01f, sc[2]) };
         MarkLevelDirty();
     }
+    bImGuizmoHovered = ImGuizmo::IsOver(op);
+    bImGuizmoUsing = ImGuizmo::IsUsing();
 }
 
 void FEngine::DrawImGuiEditor()
@@ -5358,8 +5434,16 @@ void FEngine::Tick(float dtSeconds)
     const XMMATRIX invViewProj = XMMatrixInverse(nullptr, viewProj);
 
     static bool prevLDown = false;
-    const bool sceneMouseAvailable = !bUseImGuiEditor || bImGuiViewportHovered || bDragging || bPlacingFromSidebar || bDraggingMaterial;
-    const bool lDown = Input.Keys[VK_LBUTTON] && sceneMouseAvailable;
+    const bool mouseInsideImGuiViewport = bUseImGuiEditor &&
+        MouseX >= 0 && MouseY >= 0 && MouseX < (int)w && MouseY < (int)h;
+    const bool sceneMouseAvailable = !bUseImGuiEditor || bImGuiViewportHovered || mouseInsideImGuiViewport ||
+        bDragging || bPlacingFromSidebar || bDraggingMaterial;
+    const bool physicalLeftDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+    const bool leftMouseDown = (bUseImGuiEditor && bImGuiInitialized)
+        ? (ImGui::GetIO().MouseDown[0] || Input.Keys[VK_LBUTTON] || physicalLeftDown)
+        : Input.Keys[VK_LBUTTON];
+    const bool lDown = leftMouseDown && sceneMouseAvailable;
+    const bool imGuiGizmoCapturing = bUseImGuiEditor && (bImGuizmoHovered || bImGuizmoUsing);
 
     // 拖拽放置时每帧更新鼠标（非消息驱动）。
     // While dragging from sidebar, follow the mouse every frame (not message-driven).
@@ -5422,12 +5506,19 @@ PlacementDone:
     // On click: pick either gizmo axis (if selected) or the sphere.
     if (lDown && !prevLDown)
     {
+        const bool hasSelection = (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size());
+        const XMVECTOR selectedCenter = hasSelection ? XMLoadFloat3(&Objects[SelectedIndex].Position) : XMVectorZero();
+        bool imGuiNearGizmo = false;
+        const int imGuiPickedAxis = (bUseImGuiEditor && hasSelection)
+            ? PickEditorGizmoAxis2D(MouseX, MouseY, selectedCenter, viewProj, w, h, imGuiNearGizmo)
+            : 0;
+
         // 若处于放置拖拽，不进行场景拾取。
-        // Skip scene picking when starting a placement drag.
-        if (bPlacingFromSidebar)
+        // Skip legacy scene picking while placement or ImGuizmo owns the click.
+        if (bPlacingFromSidebar || (bUseImGuiEditor && imGuiPickedAxis == 0 && (imGuiGizmoCapturing || imGuiNearGizmo)))
         {
             prevLDown = lDown;
-            return;
+            goto SceneClickDone;
         }
 
         ActiveAxis = EGizmoAxis::None;
@@ -5436,40 +5527,50 @@ PlacementDone:
         XMVECTOR rayOrigin{};
         const XMVECTOR rayDir = MakeRayDirFromScreen(MouseX, MouseY, w, h, invViewProj, rayOrigin);
 
-        const bool hasSelection = (SelectedIndex >= 0 && SelectedIndex < (int)Objects.size());
-        const XMVECTOR selectedCenter = hasSelection ? XMLoadFloat3(&Objects[SelectedIndex].Position) : XMVectorZero();
-
         // 已选中物体时，先在屏幕空间测试 Gizmo 轴线命中。
         // If sphere is selected, try axis hit-test in screen-space (like UE).
         if (hasSelection)
         {
-            constexpr float gizmoLen = 1.5f;
-            const XMVECTOR p0 = selectedCenter;
-            const XMVECTOR px = XMVectorAdd(p0, XMVectorSet(gizmoLen, 0.0f, 0.0f, 0.0f));
-            const XMVECTOR py = XMVectorAdd(p0, XMVectorSet(0.0f, gizmoLen, 0.0f, 0.0f));
-            const XMVECTOR pz = XMVectorAdd(p0, XMVectorSet(0.0f, 0.0f, gizmoLen, 0.0f));
-
-            float x0, y0, x1, y1;
             float bestDist = 1e9f;
             EGizmoAxis bestAxis = EGizmoAxis::None;
             constexpr float kPickThresholdPx = 12.0f;
 
-            if (ProjectToScreen(p0, viewProj, w, h, x0, y0))
+            if (bUseImGuiEditor)
             {
-                if (ProjectToScreen(px, viewProj, w, h, x1, y1))
+                switch (imGuiPickedAxis)
                 {
-                    const float d = DistancePointToSegment2D((float)MouseX, (float)MouseY, x0, y0, x1, y1);
-                    if (d < bestDist) { bestDist = d; bestAxis = EGizmoAxis::X; }
+                case 1: bestDist = 0.0f; bestAxis = EGizmoAxis::X; break;
+                case 2: bestDist = 0.0f; bestAxis = EGizmoAxis::Y; break;
+                case 3: bestDist = 0.0f; bestAxis = EGizmoAxis::Z; break;
+                default: break;
                 }
-                if (ProjectToScreen(py, viewProj, w, h, x1, y1))
+            }
+            else
+            {
+                constexpr float gizmoLen = 1.5f;
+                const XMVECTOR p0 = selectedCenter;
+                const XMVECTOR px = XMVectorAdd(p0, XMVectorSet(gizmoLen, 0.0f, 0.0f, 0.0f));
+                const XMVECTOR py = XMVectorAdd(p0, XMVectorSet(0.0f, gizmoLen, 0.0f, 0.0f));
+                const XMVECTOR pz = XMVectorAdd(p0, XMVectorSet(0.0f, 0.0f, gizmoLen, 0.0f));
+
+                float x0, y0, x1, y1;
+                if (ProjectToScreen(p0, viewProj, w, h, x0, y0))
                 {
-                    const float d = DistancePointToSegment2D((float)MouseX, (float)MouseY, x0, y0, x1, y1);
-                    if (d < bestDist) { bestDist = d; bestAxis = EGizmoAxis::Y; }
-                }
-                if (ProjectToScreen(pz, viewProj, w, h, x1, y1))
-                {
-                    const float d = DistancePointToSegment2D((float)MouseX, (float)MouseY, x0, y0, x1, y1);
-                    if (d < bestDist) { bestDist = d; bestAxis = EGizmoAxis::Z; }
+                    if (ProjectToScreen(px, viewProj, w, h, x1, y1))
+                    {
+                        const float d = DistancePointToSegment2D((float)MouseX, (float)MouseY, x0, y0, x1, y1);
+                        if (d < bestDist) { bestDist = d; bestAxis = EGizmoAxis::X; }
+                    }
+                    if (ProjectToScreen(py, viewProj, w, h, x1, y1))
+                    {
+                        const float d = DistancePointToSegment2D((float)MouseX, (float)MouseY, x0, y0, x1, y1);
+                        if (d < bestDist) { bestDist = d; bestAxis = EGizmoAxis::Y; }
+                    }
+                    if (ProjectToScreen(pz, viewProj, w, h, x1, y1))
+                    {
+                        const float d = DistancePointToSegment2D((float)MouseX, (float)MouseY, x0, y0, x1, y1);
+                        if (d < bestDist) { bestDist = d; bestAxis = EGizmoAxis::Z; }
+                    }
                 }
             }
 
@@ -5522,6 +5623,7 @@ PlacementDone:
     }
 
     // 拖拽：沿选中轴进行平移或缩放。
+SceneClickDone:
     // Dragging: translate or scale along selected axis.
     if (lDown && bDragging && SelectedIndex >= 0 && SelectedIndex < (int)Objects.size() && ActiveAxis != EGizmoAxis::None)
     {
