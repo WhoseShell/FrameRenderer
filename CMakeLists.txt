@@ -75,7 +75,6 @@ target_compile_definitions(dx12_hello PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
     SHADER_DIR=L"${CMAKE_CURRENT_SOURCE_DIR}/shaders"
-    ASSET_DIR=L"${CMAKE_CURRENT_SOURCE_DIR}/assets"
     CONTENT_DIR=L"${CMAKE_CURRENT_SOURCE_DIR}/Content"
 )
 

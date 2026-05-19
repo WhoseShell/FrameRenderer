@@ -6,3 +6,5 @@ artifacts/
 
 # Local-only RenderDoc analysis notes. Runtime evidence belongs in Content manifests.
 Docs/RenderDocPlant/
+assets/renderdoc_rock/
+Content/Models/**/*_import_manifest.json

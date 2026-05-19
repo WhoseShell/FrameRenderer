@@ -114,7 +114,7 @@ Release 编译：
 $env:SHELLENGINE_START_LEVEL = 'Content/Levels/<level>.level.json'
 $env:SHELLENGINE_CAPTURE_FRAME_PATH = "$env:TEMP\fr_<asset>_validation.png"
 $env:SHELLENGINE_CAPTURE_FRAME_INDEX = '5'
-.\build_vs\x64\Release\dx12_hello.exe
+.\build_vs\Release\dx12_hello.exe
 ```
 
 检查截图并确认：
@@ -128,11 +128,12 @@ $env:SHELLENGINE_CAPTURE_FRAME_INDEX = '5'
 
 ## 证据产物
 
-每个导入的截帧对象都要有紧凑的分析证据。默认把可同步的证据写到 import manifest：
+每个导入的截帧对象都要有紧凑的本地分析证据，但证据类文件默认不提交到 Git：
 
-- `Content/Models/<AssetName>/<event>_import_manifest.json`：记录精确 counts、bounds、resource ids、导入参数
+- `Docs/<AssetName>/<event>_analysis.md`：本地记录 shader / material 推理
+- `Content/Models/<AssetName>/<event>_import_manifest.json`：本地记录精确 counts、bounds、resource ids、导入参数
 
-纯分析文档可以保留在本地，但不要默认提交到 Git，除非用户明确要求同步这些分析笔记。
+只有运行时真正加载的资源才提交到 Git，例如 mesh、texture、material、level，以及 renderer 必须读取的 runtime manifest。纯分析文档、原始 shader bytecode、本地截帧路径、导入证据 manifest 不要默认提交，除非用户明确要求同步。
 
 证据至少应该包含：
 
@@ -151,7 +152,7 @@ $env:SHELLENGINE_CAPTURE_FRAME_INDEX = '5'
 - 修改前已查看 `git status --short`
 - mesh、texture、material、level 都位于 `Content`
 - material 是 v2 JSON，每个可渲染 actor 都有具体 material path
-- 截帧证据已记录在 import manifest
+- 纯分析证据保留本地且没有被 Git 跟踪
 - Release 编译通过
 - 已生成并检查验证截图
 - 新资源影响到的 UI / editor 冒烟路径仍正常

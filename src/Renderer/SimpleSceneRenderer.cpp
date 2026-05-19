@@ -20,8 +20,8 @@
 #define SHADER_DIR L"."
 #endif
 
-#ifndef ASSET_DIR
-#define ASSET_DIR L"assets"
+#ifndef CONTENT_DIR
+#define CONTENT_DIR L"Content"
 #endif
 
 namespace
@@ -1492,7 +1492,7 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
 void FSimpleSceneRenderer::InitRenderDocRockRenderer(FD3D12RHI& rhi)
 {
     std::string error;
-    const std::filesystem::path manifestPath = std::filesystem::path(ASSET_DIR) / L"renderdoc_rock" / L"CaptureRockManifest.json";
+    const std::filesystem::path manifestPath = std::filesystem::path(CONTENT_DIR) / L"Models" / L"RDR2Rock" / L"CaptureRockManifest.json";
     const std::filesystem::path shaderPath = std::filesystem::path(SHADER_DIR) / L"renderdoc_rock.hlsl";
     if (RenderDocRockRenderer.Initialize(rhi, HDRFormat, rhi.GetDepthFormat(), manifestPath, shaderPath, &error))
     {

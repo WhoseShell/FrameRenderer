@@ -41,13 +41,14 @@ skill 覆盖的流程包括：
 ### RenderDoc Rock
 
 - 模型：`Content/Models/RDR2Rock/rdr2_capture_rock.obj`
+- 专用 renderer manifest：`Content/Models/RDR2Rock/CaptureRockManifest.json`
+- 专用 renderer mesh buffers：`Content/Models/RDR2Rock/meshes/*.bin`
 - 材质：`Content/Materials/RDR2Rock/rdr2_capture_rock.material.json`
 - 纹理：`Content/Textures/RDR2Rock/*.dds`
 - 材质模式：`Rdr2Rock`
 
 ### RenderDoc Plant
 
-- 导入 manifest：`Content/Models/RenderDocPlant/event_18024_import_manifest.json`
 - 模型：`Content/Models/RenderDocPlant/renderdoc_plant_event_18024.obj`
 - 材质：`Content/Materials/RenderDocPlant/renderdoc_plant_event_18024.material.json`
 - 纹理：
@@ -75,7 +76,7 @@ cmake --build build_vs --config Release
 可执行文件路径：
 
 ```text
-build_vs/x64/Release/dx12_hello.exe
+build_vs/Release/dx12_hello.exe
 ```
 
 ## 运行
@@ -83,14 +84,14 @@ build_vs/x64/Release/dx12_hello.exe
 运行默认 RenderDoc 场景：
 
 ```powershell
-.\build_vs\x64\Release\dx12_hello.exe
+.\build_vs\Release\dx12_hello.exe
 ```
 
 指定启动某个 Level：
 
 ```powershell
 $env:SHELLENGINE_START_LEVEL = 'Content/Levels/renderdoc_plant_event_18024.level.json'
-.\build_vs\x64\Release\dx12_hello.exe
+.\build_vs\Release\dx12_hello.exe
 ```
 
 运行并截取验证图：
@@ -99,7 +100,7 @@ $env:SHELLENGINE_START_LEVEL = 'Content/Levels/renderdoc_plant_event_18024.level
 $env:SHELLENGINE_START_LEVEL = 'Content/Levels/default_renderdoc_scene.level.json'
 $env:SHELLENGINE_CAPTURE_FRAME_PATH = "$env:TEMP\fr_default_renderdoc_scene.png"
 $env:SHELLENGINE_CAPTURE_FRAME_INDEX = '5'
-.\build_vs\x64\Release\dx12_hello.exe
+.\build_vs\Release\dx12_hello.exe
 ```
 
 ## 编辑器操作
@@ -130,6 +131,7 @@ Content/
     RenderDocPlant/
   Models/
     RDR2Rock/
+      meshes/
     RenderDocPlant/
   Textures/
     RDR2Rock/
@@ -150,6 +152,8 @@ tools/
 
 所有可渲染场景对象都应该引用一个真实的 `.material.json`。默认兜底材质是 `Content/Materials/Default/default_pbr.material.json`。
 
+运行时真正加载的模型、纹理、材质、关卡和专用 renderer manifest 都应该放在 `Content` 下。RenderDoc 原始 shader bytecode、分析 README、本地截帧路径等证据类文件默认只保留本地，不提交到 Git。
+
 ## 验证清单
 
 一个 RenderDoc 资源导入完成前，至少需要确认：
@@ -159,7 +163,7 @@ tools/
 - 必要纹理已经复制到 `Content/Textures`
 - 已创建并绑定 v2 材质
 - 已在 `Content/Levels` 下创建可运行 Level
-- 截帧证据已记录到 import manifest
+- 纯分析证据只保留本地，不提交到 Git
 - 已从运行中的渲染器截取验证图
 - 编辑器可以选择、移动、查看、保存导入对象
 
