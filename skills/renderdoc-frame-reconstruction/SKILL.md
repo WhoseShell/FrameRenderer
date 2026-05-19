@@ -128,10 +128,11 @@ $env:SHELLENGINE_CAPTURE_FRAME_INDEX = '5'
 
 ## 证据产物
 
-每个导入的截帧对象都要有紧凑的分析证据。优先使用：
+每个导入的截帧对象都要有紧凑的分析证据。默认把可同步的证据写到 import manifest：
 
-- `Docs/<AssetName>/<event>_analysis.md`：记录 shader / material 推理
 - `Content/Models/<AssetName>/<event>_import_manifest.json`：记录精确 counts、bounds、resource ids、导入参数
+
+纯分析文档可以保留在本地，但不要默认提交到 Git，除非用户明确要求同步这些分析笔记。
 
 证据至少应该包含：
 
@@ -150,7 +151,7 @@ $env:SHELLENGINE_CAPTURE_FRAME_INDEX = '5'
 - 修改前已查看 `git status --short`
 - mesh、texture、material、level 都位于 `Content`
 - material 是 v2 JSON，每个可渲染 actor 都有具体 material path
-- 截帧证据已记录在 `Docs` 或 import manifest
+- 截帧证据已记录在 import manifest
 - Release 编译通过
 - 已生成并检查验证截图
 - 新资源影响到的 UI / editor 冒烟路径仍正常

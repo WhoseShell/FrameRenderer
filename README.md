@@ -47,7 +47,6 @@ skill 覆盖的流程包括：
 
 ### RenderDoc Plant
 
-- 分析文档：`Docs/RenderDocPlant/event_18024_analysis.md`
 - 导入 manifest：`Content/Models/RenderDocPlant/event_18024_import_manifest.json`
 - 模型：`Content/Models/RenderDocPlant/renderdoc_plant_event_18024.obj`
 - 材质：`Content/Materials/RenderDocPlant/renderdoc_plant_event_18024.material.json`
@@ -135,8 +134,6 @@ Content/
   Textures/
     RDR2Rock/
     RenderDocPlant/
-Docs/
-  RenderDocPlant/
 skills/
   renderdoc-frame-reconstruction/
 src/
@@ -162,7 +159,7 @@ tools/
 - 必要纹理已经复制到 `Content/Textures`
 - 已创建并绑定 v2 材质
 - 已在 `Content/Levels` 下创建可运行 Level
-- 截帧证据已记录到 `Docs` 或 import manifest
+- 截帧证据已记录到 import manifest
 - 已从运行中的渲染器截取验证图
 - 编辑器可以选择、移动、查看、保存导入对象
 

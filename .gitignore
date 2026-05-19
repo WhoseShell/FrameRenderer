@@ -3,3 +3,6 @@ artifacts/
 .vs/
 *.user
 *.suo
+
+# Local-only RenderDoc analysis notes. Runtime evidence belongs in Content manifests.
+Docs/RenderDocPlant/
