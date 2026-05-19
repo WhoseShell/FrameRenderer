@@ -1,0 +1,3 @@
+display_name: RenderDoc Frame Reconstruction
+short_description: Reconstruct RenderDoc captures into FrameRenderer assets, materials, levels, shaders, and validation screenshots.
+default_prompt: Reconstruct the selected RenderDoc capture draw inside FrameRenderer as real geometry with imported textures, a concrete material, a level, and rendered validation evidence.
