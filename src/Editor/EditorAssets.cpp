@@ -98,6 +98,8 @@ std::wstring NormalizeShadingMode(std::wstring mode)
         return L"Unlit";
     if (mode == L"rdr2rock" || mode == L"rdr2 rock" || mode == L"rock")
         return L"Rdr2Rock";
+    if (mode == L"rdr2foliage" || mode == L"rdr2 foliage" || mode == L"foliage")
+        return L"Rdr2Foliage";
     return L"PbrLit";
 }
 
@@ -268,7 +270,7 @@ bool SaveMaterialFile(const std::filesystem::path& path, const FMaterialFile& ma
         os << "    \"Color\": " << JsonFloat3(material.Albedo) << ",\n";
         os << "    \"Intensity\": " << material.Intensity << "\n";
     }
-    else if (mode == L"Rdr2Rock")
+    else if (mode == L"Rdr2Rock" || mode == L"Rdr2Foliage")
     {
         os << "    \"BaseColor\": " << JsonFloat3(material.Albedo) << ",\n";
         os << "    \"Metallic\": " << material.Metallic << ",\n";
@@ -288,7 +290,7 @@ bool SaveMaterialFile(const std::filesystem::path& path, const FMaterialFile& ma
     {
         os << "    \"Color\": \"" << JsonEscape(material.AlbedoTexture) << "\"\n";
     }
-    else if (mode == L"Rdr2Rock")
+    else if (mode == L"Rdr2Rock" || mode == L"Rdr2Foliage")
     {
         os << "    \"BaseColor\": \"" << JsonEscape(material.AlbedoTexture) << "\",\n";
         os << "    \"Normal\": \"" << JsonEscape(material.NormalTexture) << "\",\n";
@@ -329,7 +331,7 @@ bool LoadMaterialFile(const std::filesystem::path& path, FMaterialFile& material
                 material.Albedo = GetFloat3(*params, "Color", material.Albedo);
                 material.Intensity = GetFloat(*params, "Intensity", material.Intensity);
             }
-            else if (material.ShadingMode == L"Rdr2Rock")
+            else if (material.ShadingMode == L"Rdr2Rock" || material.ShadingMode == L"Rdr2Foliage")
             {
                 material.Albedo = GetFloat3(*params, "BaseColor", material.Albedo);
                 material.Metallic = GetFloat(*params, "Metallic", material.Metallic);

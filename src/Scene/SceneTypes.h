@@ -11,6 +11,7 @@ enum class EMaterialShadingMode : uint32
     PbrLit = 0,
     Unlit = 1,
     Rdr2Rock = 2,
+    Rdr2Foliage = 3,
 };
 
 struct FSceneObject

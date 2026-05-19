@@ -74,6 +74,16 @@ constexpr COLORREF kEditorList = RGB(24, 24, 24);
 constexpr COLORREF kEditorEdit = RGB(46, 46, 46);
 constexpr COLORREF kEditorText = RGB(226, 226, 226);
 constexpr wchar_t kDefaultMaterialAssetPath[] = L"Materials/Default/default_pbr.material.json";
+constexpr wchar_t kDefaultStartupLevelPath[] = L"Levels/default_renderdoc_scene.level.json";
+
+std::wstring ReadEnvWide(const wchar_t* name)
+{
+    wchar_t buffer[2048]{};
+    const DWORD len = GetEnvironmentVariableW(name, buffer, (DWORD)_countof(buffer));
+    if (len == 0 || len >= _countof(buffer))
+        return {};
+    return std::wstring(buffer, len);
+}
 
 std::filesystem::path MakeUniquePath(const std::filesystem::path& directory, const std::filesystem::path& fileName)
 {
@@ -152,6 +162,8 @@ constexpr FMaterialSchema kMaterialSchemas[] = {
         { L"Color Tex:", L"", L"", L"", L"" }, 1 },
     { EMaterialShadingMode::Rdr2Rock, L"Rdr2Rock", L"Base Color:", L"Roughness:", L"Normal Str:", true,
         { L"BaseColor Tex:", L"Normal Tex:", L"Mask A Tex:", L"Mask B Tex:", L"Aux Tex:" }, 5 },
+    { EMaterialShadingMode::Rdr2Foliage, L"Rdr2Foliage", L"Base Color:", L"Roughness:", L"Normal Str:", true,
+        { L"BaseColor+Alpha:", L"Normal Tex:", L"Mask Tex:", L"Detail Tex:", L"Aux Tex:" }, 5 },
 };
 
 const FMaterialSchema& GetMaterialSchema(EMaterialShadingMode mode)
@@ -3179,7 +3191,9 @@ void FEngine::ApplyMaterialAssetToSceneObject(FSceneObject& object, int material
     object.RockNormalStrength = mat.RockNormalStrength;
     object.RockBaseColorBoost = mat.RockBaseColorBoost;
     object.UseAlbedoTex = (mat.AlbedoTexIndex >= 0) ? 1.0f : 0.0f;
-    const bool usesPbrSlots = mat.ShadingMode == EMaterialShadingMode::PbrLit || mat.ShadingMode == EMaterialShadingMode::Rdr2Rock;
+    const bool usesPbrSlots = mat.ShadingMode == EMaterialShadingMode::PbrLit
+        || mat.ShadingMode == EMaterialShadingMode::Rdr2Rock
+        || mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage;
     object.UseNormalTex = (usesPbrSlots && mat.NormalTexIndex >= 0) ? 1.0f : 0.0f;
     object.UseRoughnessTex = (usesPbrSlots && mat.RoughnessTexIndex >= 0) ? 1.0f : 0.0f;
     object.UseMetallicTex = (usesPbrSlots && mat.MetallicTexIndex >= 0) ? 1.0f : 0.0f;
@@ -3694,7 +3708,7 @@ void FEngine::UpdateMaterialEditorControls()
     }
     if (paramB)
     {
-        const float v = (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+        const float v = (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock || mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage)
             ? Clamp(mat.RockNormalStrength, 0.0f, 1.0f)
             : Clamp(mat.Metallic, 0.0f, 1.0f);
         SendMessageW(paramB, TBM_SETPOS, TRUE, (LPARAM)(int)(v * kSliderSteps));
@@ -3787,12 +3801,12 @@ void FEngine::ApplyMaterialEditorChanges()
         {
             mat.UnlitIntensity = 1.0f;
         }
-        else if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+        else if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock || mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage)
         {
-            mat.Roughness = 0.82f;
+            mat.Roughness = (mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage) ? 0.62f : 0.82f;
             mat.Metallic = 0.0f;
-            mat.RockNormalStrength = 0.18f;
-            mat.RockBaseColorBoost = 1.25f;
+            mat.RockNormalStrength = (mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage) ? 0.45f : 0.18f;
+            mat.RockBaseColorBoost = (mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage) ? 1.0f : 1.25f;
         }
         else
         {
@@ -3811,7 +3825,7 @@ void FEngine::ApplyMaterialEditorChanges()
     if (!modeChanged && paramB)
     {
         const float value = Clamp((float)SendMessageW(paramB, TBM_GETPOS, 0, 0) / kSliderSteps, 0.0f, 1.0f);
-        if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+        if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock || mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage)
             mat.RockNormalStrength = value;
         else if (mat.ShadingMode == EMaterialShadingMode::PbrLit)
             mat.Metallic = value;
@@ -3837,7 +3851,7 @@ void FEngine::ApplyMaterialEditorChanges()
     };
 
     readCombo(IDC_MATERIAL_TEX0, mat.AlbedoTexIndex, mat.AlbedoTexSlot, 0);
-    if (mat.ShadingMode == EMaterialShadingMode::PbrLit || mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+    if (mat.ShadingMode == EMaterialShadingMode::PbrLit || mat.ShadingMode == EMaterialShadingMode::Rdr2Rock || mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage)
     {
         readCombo(IDC_MATERIAL_TEX1, mat.NormalTexIndex, mat.NormalTexSlot, 1);
         readCombo(IDC_MATERIAL_TEX2, mat.RoughnessTexIndex, mat.RoughnessTexSlot, 2);
@@ -4391,12 +4405,12 @@ void FEngine::DrawImGuiMaterialEditor()
                     mat.ShadingMode = newMode;
                     if (mat.ShadingMode == EMaterialShadingMode::Unlit)
                         mat.UnlitIntensity = 1.0f;
-                    else if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+                    else if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock || mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage)
                     {
-                        mat.Roughness = 0.82f;
+                        mat.Roughness = (mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage) ? 0.62f : 0.82f;
                         mat.Metallic = 0.0f;
-                        mat.RockNormalStrength = 0.18f;
-                        mat.RockBaseColorBoost = 1.25f;
+                        mat.RockNormalStrength = (mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage) ? 0.45f : 0.18f;
+                        mat.RockBaseColorBoost = (mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage) ? 1.0f : 1.25f;
                     }
                     else
                     {
@@ -4433,11 +4447,12 @@ void FEngine::DrawImGuiMaterialEditor()
         if (mat.ShadingMode == EMaterialShadingMode::PbrLit)
             if (ImGui::SliderFloat("Metallic", &mat.Metallic, 0.0f, 1.0f))
                 materialChanged = true;
-        if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock)
+        if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock || mat.ShadingMode == EMaterialShadingMode::Rdr2Foliage)
         {
             if (ImGui::SliderFloat("Normal Strength", &mat.RockNormalStrength, 0.0f, 1.0f))
                 materialChanged = true;
-            if (ImGui::DragFloat("Base Color Boost", &mat.RockBaseColorBoost, 0.01f, 0.0f, 8.0f))
+            if (mat.ShadingMode == EMaterialShadingMode::Rdr2Rock
+                && ImGui::DragFloat("Base Color Boost", &mat.RockBaseColorBoost, 0.01f, 0.0f, 8.0f))
                 materialChanged = true;
         }
     }
@@ -6182,24 +6197,7 @@ void FEngine::Run(HINSTANCE hInstance)
     LayoutUI();
 
     // 创建一个默认球体对象以便演示。
-    // Create one default sphere in scene
-    {
-        FSceneObject obj{};
-        obj.Id = NextObjectId++;
-        obj.Name = L"Sphere " + std::to_wstring(obj.Id);
-        obj.Type = FSceneObject::EType::Sphere;
-        obj.Position = { 0.0f, 0.0f, 0.0f };
-        obj.Radius = 0.75f;
-        obj.Albedo = { 0.85f, 0.15f, 0.10f };
-        obj.Metallic = 0.0f;
-        obj.Roughness = 0.35f;
-        obj.MaterialIndex = -1;
-        obj.MaterialSRVBase = Renderer.AllocateMaterialSRVBlock();
-        Renderer.UpdateMaterialSRVBlock(obj.MaterialSRVBase, 0, 1, 2, 3, 4);
-        Objects.push_back(obj);
-        SelectedIndex = 0;
-    }
-
+    // Fallback scene shown only if the startup level cannot be loaded.
     {
         FSceneObject obj{};
         obj.Id = NextObjectId++;
@@ -6214,6 +6212,7 @@ void FEngine::Run(HINSTANCE hInstance)
         obj.MaterialIndex = -1;
         obj.MaterialSRVBase = 0;
         Objects.push_back(obj);
+        SelectedIndex = 0;
     }
     EnsureDefaultEnvironmentActors();
     RefreshOutliner();
@@ -6233,6 +6232,17 @@ void FEngine::Run(HINSTANCE hInstance)
     MigrateContentMaterialsToV2();
     LoadContentMaterials();
     EnsureConcreteMaterialsForRenderableObjects();
+    const std::wstring startupLevel = ReadEnvWide(L"SHELLENGINE_START_LEVEL");
+    std::filesystem::path startupPath = startupLevel.empty()
+        ? (ContentRoot / kDefaultStartupLevelPath)
+        : std::filesystem::path(startupLevel);
+    if (!startupPath.empty())
+    {
+        if (startupPath.is_relative() && !std::filesystem::exists(startupPath))
+            startupPath = ContentRoot / startupPath;
+        if (std::filesystem::exists(startupPath))
+            LoadLevelFromPath(startupPath);
+    }
 
     // 初始化后同步 HWRT 可用性与 UI。
     // Update HWRT UI availability after renderer init.

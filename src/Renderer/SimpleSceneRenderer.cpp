@@ -1084,7 +1084,7 @@ void FSimpleSceneRenderer::Init(FD3D12RHI& rhi)
 
     D3D12_RASTERIZER_DESC rast{};
     rast.FillMode = D3D12_FILL_MODE_SOLID;
-    rast.CullMode = D3D12_CULL_MODE_BACK;
+    rast.CullMode = D3D12_CULL_MODE_NONE;
     rast.FrontCounterClockwise = FALSE;
     rast.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
     rast.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;

@@ -102,8 +102,9 @@ void FSceneRenderer::Render()
             cb.UseRoughnessTex = obj.UseRoughnessTex;
             cb.UseMetallicTex = obj.UseMetallicTex;
             cb.UseAOTex = obj.UseAOTex;
-            cb.ShadingMode = (obj.MaterialShadingMode == EMaterialShadingMode::Rdr2Rock) ? 2.0f :
-                ((obj.MaterialShadingMode == EMaterialShadingMode::Unlit) ? 1.0f : 0.0f);
+            cb.ShadingMode = (obj.MaterialShadingMode == EMaterialShadingMode::Rdr2Foliage) ? 3.0f :
+                ((obj.MaterialShadingMode == EMaterialShadingMode::Rdr2Rock) ? 2.0f :
+                ((obj.MaterialShadingMode == EMaterialShadingMode::Unlit) ? 1.0f : 0.0f));
             cb.UnlitIntensity = obj.UnlitIntensity;
             cb.RockNormalStrength = obj.RockNormalStrength;
             cb.RockBaseColorBoost = obj.RockBaseColorBoost;

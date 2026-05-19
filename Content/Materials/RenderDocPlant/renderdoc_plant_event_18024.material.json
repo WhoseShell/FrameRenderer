@@ -1,0 +1,20 @@
+{
+  "type": "Material",
+  "version": 2,
+  "name": "RenderDoc Plant Event 18024",
+  "shadingMode": "Rdr2Foliage",
+  "params": {
+    "BaseColor": [1.000000, 1.000000, 1.000000],
+    "Metallic": 0.000000,
+    "Roughness": 0.620000,
+    "NormalStrength": 0.450000,
+    "BaseColorBoost": 1.150000
+  },
+  "textures": {
+    "BaseColor": "Textures/RenderDocPlant/102006_basecolor_alpha.dds",
+    "Normal": "Textures/RenderDocPlant/102010_normal.dds",
+    "MaskA": "Textures/RenderDocPlant/102008_mask.dds",
+    "MaskB": "",
+    "Aux": ""
+  }
+}

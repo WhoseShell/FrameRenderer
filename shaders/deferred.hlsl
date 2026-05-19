@@ -57,10 +57,14 @@ struct GBufferOut
  * @return GBuffer 输出（RT0/RT1/RT2）。
  * @note 阶段：延迟渲染 GBuffer 阶段。
  */
-GBufferOut PSGBuffer(PSIn i)
+GBufferOut PSGBuffer(PSIn i, bool isFrontFace : SV_IsFrontFace)
 {
     FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv, i.col);
+    if (material.AlphaClip > 0.5)
+        clip(material.Alpha - 0.33);
     float3 N = material.Normal;
+    if (material.IsTwoSided > 0.5 && !isFrontFace)
+        N = -N;
 
     // Normal map (tangent basis approximated from world up)
     if (false)
@@ -89,7 +93,7 @@ GBufferOut PSGBuffer(PSIn i)
     }
     // 打包 GBuffer 输出。
     o.RT0 = float4(albedo, metallic);
-    o.RT1 = float4(N, roughness + 1.0);
+    o.RT1 = float4(N, roughness + ((material.IsTwoSided > 0.5) ? 2.0 : 1.0));
     o.RT2 = float4(i.posW, ao);
     return o;
 }
@@ -165,7 +169,8 @@ float4 PSDeferredLighting(VSFullOut i) : SV_Target
         return float4(0.0, 0.0, 0.0, 0.0); // alpha=0 keeps sky/background
     if (gb0.a < 0.0)
         return float4(max(gb0.rgb, float3(0.0, 0.0, 0.0)), 1.0);
-    const float roughness = saturate(valid - 1.0);
+    const bool isFoliage = valid > 2.0;
+    const float roughness = saturate(valid - (isFoliage ? 2.0 : 1.0));
 
     const float3 albedo = gb0.rgb;
     const float metallic = saturate(gb0.a);
@@ -178,6 +183,8 @@ float4 PSDeferredLighting(VSFullOut i) : SV_Target
     const float3 radiance = g_lightColor_L * g_lightIntensity_L;
 
     float shadow = ComputeShadowFactor(posW);
+    if (isFoliage)
+        shadow = 1.0;
     float3 color = BRDF_UEStyle(N, V, L, albedo, metallic, roughness) * radiance * shadow;
 
     // 叠加 IBL 环境光。

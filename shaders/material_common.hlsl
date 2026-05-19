@@ -9,6 +9,9 @@ struct FDecodedMaterial
     float Roughness;
     float AO;
     float IsUnlit;
+    float IsTwoSided;
+    float Alpha;
+    float AlphaClip;
     float3 UnlitColor;
 };
 
@@ -30,9 +33,11 @@ FDecodedMaterial DecodeSceneMaterial(float3 normalW, float2 uv, float3 vertexCol
 {
     FDecodedMaterial m;
     const bool isRdr2Rock = (g_shadingMode > 1.5 && g_shadingMode < 2.5);
+    const bool isRdr2Foliage = (g_shadingMode > 2.5 && g_shadingMode < 3.5);
     m.Normal = isRdr2Rock ? normalize(normalW) : DecodeMaterialNormal(normalW, uv);
 
-    float3 albedoTex = g_albedoTex.Sample(g_samp, uv).rgb;
+    float4 albedoSample = g_albedoTex.Sample(g_samp, uv);
+    float3 albedoTex = albedoSample.rgb;
     float roughTex = g_roughnessTex.Sample(g_samp, uv).r;
     float metalTex = g_metallicTex.Sample(g_samp, uv).r;
     float aoTex = g_aoTex.Sample(g_samp, uv).r;
@@ -53,7 +58,20 @@ FDecodedMaterial DecodeSceneMaterial(float3 normalW, float2 uv, float3 vertexCol
         m.Roughness = saturate(lerp(g_roughness, 0.35 + 0.6 * maskA.g, 0.25));
         m.AO = saturate(lerp(1.0, maskA.r, 0.30));
     }
+    if (isRdr2Foliage)
+    {
+        float3 mask = g_roughnessTex.Sample(g_samp, uv).rgb;
+        float3 normalSample = g_normalTex.Sample(g_samp, uv).xyz * 2.0 - 1.0;
+        m.Normal = normalize(m.Normal + normalSample * saturate(g_rockNormalStrength));
+        m.Albedo = albedoTex * lerp(float3(1.0, 1.0, 1.0), saturate(vertexColor), 0.25) * g_albedo * max(g_rockBaseColorBoost, 0.0);
+        m.Metallic = 0.0;
+        m.Roughness = saturate(lerp(g_roughness, 0.25 + 0.70 * (1.0 - mask.r), g_useRoughnessTex));
+        m.AO = saturate(lerp(1.0, mask.g, 0.35 * g_useRoughnessTex));
+    }
     m.IsUnlit = (g_shadingMode > 0.5 && g_shadingMode < 1.5) ? 1.0 : 0.0;
+    m.IsTwoSided = isRdr2Foliage ? 1.0 : 0.0;
+    m.Alpha = lerp(1.0, albedoSample.a, g_useAlbedoTex);
+    m.AlphaClip = isRdr2Foliage ? 1.0 : 0.0;
     m.UnlitColor = max(m.Albedo * max(g_unlitIntensity, 0.0), float3(0.0, 0.0, 0.0));
     return m;
 }

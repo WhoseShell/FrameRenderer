@@ -88,11 +88,15 @@ PSIn VSMain(VSIn i)
  * @return 输出 HDR 颜色。
  * @note 阶段：PBR 像素阶段。
  */
-float4 PSMain(PSIn i) : SV_Target
+float4 PSMain(PSIn i, bool isFrontFace : SV_IsFrontFace) : SV_Target
 {
     FDecodedMaterial material = DecodeSceneMaterial(i.nrmW, i.uv, i.col);
+    if (material.AlphaClip > 0.5)
+        clip(material.Alpha - 0.33);
     float3 N = material.Normal;
     float3 V = normalize(g_cameraPosWs - i.posW);
+    if (material.IsTwoSided > 0.5 && !isFrontFace)
+        N = -N;
 
     // Normal map (tangent basis approximated from world up)
     if (false)
@@ -122,6 +126,8 @@ float4 PSMain(PSIn i) : SV_Target
 
     // 直接光照 + 阴影。
     float shadow = ComputeShadowFactor(i.posW);
+    if (material.IsTwoSided > 0.5)
+        shadow = 1.0;
     float3 color = BRDF_UEStyle(N, V, L, albedo, metallic, roughness) * radiance * shadow;
 
     // Ambient: tiny diffuse + simple specular IBL approximation.

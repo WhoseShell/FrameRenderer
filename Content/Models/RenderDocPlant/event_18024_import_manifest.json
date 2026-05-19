@@ -1,0 +1,109 @@
+{
+  "source_manifest": "C:\\Users\\hsx54\\Documents\\RDC\\assets\\CaptureLocalSceneManifest.json",
+  "selected_event_id": 18024,
+  "draw_id": 1384,
+  "material_model": "OpaqueLit",
+  "alpha_mode": "cutout",
+  "mesh": {
+    "vertex_count": 394,
+    "index_count": 588,
+    "topology": "TriangleList",
+    "world_bounds": {
+      "min": [
+        2340.751380448373,
+        475.50145741379004,
+        -129.44200169935533
+      ],
+      "max": [
+        2343.9830115382993,
+        479.8333033019648,
+        -126.09445875418204
+      ]
+    },
+    "local_origin_world": [
+      2342.3671875,
+      475.50146484375,
+      -127.76823043823242
+    ],
+    "exported_obj": "Content/Models/RenderDocPlant/renderdoc_plant_event_18024.obj"
+  },
+  "shader_blobs": {
+    "vs": "capture/local_scene_precise/shaders/vertex_1000000000000001127.bin",
+    "ps": "capture/local_scene_precise/shaders/pixel_1000000000000001128.bin"
+  },
+  "material_textures": {
+    "BaseColorAlpha": "Content/Textures/RenderDocPlant/102006_basecolor_alpha.dds",
+    "Normal": "Content/Textures/RenderDocPlant/102010_normal.dds",
+    "Mask": "Content/Textures/RenderDocPlant/102008_mask.dds"
+  },
+  "all_capture_texture_bindings": [
+    {
+      "bind": 41,
+      "table_index": 4,
+      "resource_id": 20185,
+      "first_element": 0,
+      "num_elements": 1,
+      "kind": "texture",
+      "path": "capture/local_scene_precise/textures/20185.dds"
+    },
+    {
+      "bind": 42,
+      "table_index": 5,
+      "resource_id": 20187,
+      "first_element": 0,
+      "num_elements": 1,
+      "kind": "texture",
+      "path": "capture/local_scene_precise/textures/20187.dds"
+    },
+    {
+      "bind": 32,
+      "table_index": 9,
+      "resource_id": 15308,
+      "first_element": 0,
+      "num_elements": 1,
+      "kind": "texture",
+      "path": "capture/local_scene_precise/textures/15308.dds"
+    },
+    {
+      "bind": 39,
+      "table_index": 1,
+      "resource_id": 2592,
+      "first_element": 0,
+      "num_elements": 1,
+      "kind": "texture",
+      "path": "capture/local_scene_precise/textures/2592.dds"
+    },
+    {
+      "bind": 13,
+      "table_index": 3,
+      "resource_id": 102006,
+      "first_element": 0,
+      "num_elements": 1,
+      "kind": "texture",
+      "path": "capture/local_scene_precise/textures/102006.dds"
+    },
+    {
+      "bind": 94,
+      "table_index": 4,
+      "resource_id": 102008,
+      "first_element": 0,
+      "num_elements": 1,
+      "kind": "texture",
+      "path": "capture/local_scene_precise/textures/102008.dds"
+    },
+    {
+      "bind": 95,
+      "table_index": 5,
+      "resource_id": 102010,
+      "first_element": 0,
+      "num_elements": 1,
+      "kind": "texture",
+      "path": "capture/local_scene_precise/textures/102010.dds"
+    }
+  ],
+  "notes": [
+    "Pixel shader samples T3[13] as base color/alpha and discards by alpha threshold.",
+    "Pixel shader samples T5[94] as mask/gloss data and T6[95] as normal data.",
+    "Runtime material uses Rdr2Foliage: two-sided, alpha cutout, vertex color tint, normal and roughness mask approximation."
+  ]
+}
