@@ -1,23 +1,23 @@
 ---
 name: renderdoc-frame-reconstruction
-description: Use this when reconstructing RenderDoc frame-capture data into FrameRenderer as real mesh, texture, material, shader, level, and validation artifacts rather than screenshot proxies.
+description: "当需要把 RenderDoc 截帧数据还原到 FrameRenderer 中，并生成真实模型、纹理、材质、shader、关卡和验证截图时使用。"
 ---
 
-# RenderDoc Frame Reconstruction
+# RenderDoc 截帧还原
 
-Use this skill to take a RenderDoc capture, or an existing RenderDoc export/manifest, and make the captured draw render inside FrameRenderer with faithful geometry, textures, uniforms, shader behavior, and an editor level.
+使用这个 skill，把 RenderDoc 截帧、已有 RenderDoc 导出目录、或者截帧 manifest 中的 draw 还原到 FrameRenderer 中。最终结果必须是可运行的场景资源，而不是截图代理。
 
-## Ground Rules
+## 基本原则
 
-- Treat the RenderDoc capture as the source of truth. Do not replace a captured object with a generic model, baked screenshot, or visual approximation unless the limitation is explicitly documented.
-- Reconstruct the draw from evidence: event id, draw topology, input/output mesh data, texture resource ids, shader ids, constant buffers, render states, and visible validation screenshots.
-- Keep FrameRenderer architecture cohesive. Prefer Content assets and material schema support first; add renderer or HLSL code only when the captured shading cannot be expressed by an existing shading mode.
-- Preserve existing user work. Inspect `git status --short` before edits and avoid reverting unrelated changes.
+- RenderDoc 截帧是事实来源。不要用泛用模型、截图贴片或视觉近似替代真实截帧资源，除非明确记录限制。
+- 每个还原结论都应该有证据：event id、draw topology、输入 / 输出 mesh、纹理 resource id、shader id、constant buffer、render state、验证截图。
+- 优先把截帧资源转成 `Content` 资产和材质 schema。只有现有材质系统无法表达截帧 shading 时，才新增 C++ 渲染路径或 HLSL 逻辑。
+- 修改前先看 `git status --short`，不要回退用户或其他任务留下的无关改动。
 
-## FrameRenderer Conventions
+## FrameRenderer 约定
 
-- Content lives under `Content/Models`, `Content/Textures`, `Content/Materials`, and `Content/Levels`.
-- Material files use v2 JSON:
+- 项目资源目录是 `Content/Models`、`Content/Textures`、`Content/Materials`、`Content/Levels`。
+- 材质文件使用 v2 JSON：
 
 ```json
 {
@@ -30,85 +30,85 @@ Use this skill to take a RenderDoc capture, or an existing RenderDoc export/mani
 }
 ```
 
-- Level files reference assets and materials with paths relative to `Content`, such as `Models/Foo/foo.obj` and `Materials/Foo/foo.material.json`.
-- Every renderable level object must bind a concrete `.material.json`. Use `Materials/Default/default_pbr.material.json` only when the capture has no usable material evidence.
-- `ObjLoader` flips texture V on import, so write OBJ texture coordinates as `vt u 1-v` when exporting from RenderDoc-style UVs.
-- Known built-in material modes include `PbrLit`, `Unlit`, `Rdr2Rock`, and `Rdr2Foliage`. Add a new schema only when the capture requires different texture slots or decode/shading semantics.
+- Level 里的 `asset` 和 `material` 使用相对 `Content` 的路径，例如 `Models/Foo/foo.obj` 和 `Materials/Foo/foo.material.json`。
+- 每个可渲染物体都必须绑定真实 `.material.json`。只有截帧没有可用材质证据时，才使用 `Materials/Default/default_pbr.material.json` 兜底。
+- `ObjLoader` 导入时会翻转纹理 V 坐标；从 RenderDoc UV 导出 OBJ 时写成 `vt u 1-v`。
+- 已有内置材质模式包括 `PbrLit`、`Unlit`、`Rdr2Rock`、`Rdr2Foliage`。只有截帧需要不同纹理插槽、decode 或 shading 语义时，才新增 schema。
 
-## Workflow
+## 工作流程
 
-### 1. Inventory the capture
+### 1. 盘点截帧输入
 
-1. Find the `.rdc`, exported manifests, extracted buffers, shader files, and texture dumps. Use targeted searches such as `rg --files` from the repo and known capture folders.
-2. Identify the target draw or object. Prefer explicit event ids or labels. Otherwise use mesh bounds, vertex/index counts, alpha mode, texture names/resource ids, and shader signatures.
-3. Record a short evidence trail before importing anything:
-   - capture path or manifest path
+1. 找到 `.rdc`、导出的 manifest、buffer、shader 文件和 texture dump。优先在仓库和已知截帧目录中使用 `rg --files` 做定向搜索。
+2. 识别目标 draw 或目标物体。优先使用用户给出的 event id 或 label；没有时，用 mesh bounds、顶点 / 索引数量、alpha mode、纹理名 / resource id、shader 签名判断。
+3. 导入前先记录证据：
+   - capture path 或 manifest path
    - event id / draw id
-   - draw topology and index/vertex counts
-   - vertex attributes used by the shader
-   - bound textures and resource ids
-   - shader ids, entry points, or disassembly paths
-   - constant buffers/uniforms that affect placement, lighting, BRDF, alpha, wind, or material decode
+   - topology 和 index / vertex 数量
+   - shader 实际使用的 vertex attribute
+   - 绑定纹理和 resource id
+   - shader id、entry point 或 disassembly 路径
+   - 影响位置、光照、BRDF、alpha、wind、材质 decode 的 constant buffer / uniform
 
-### 2. Analyze the selected draw
+### 2. 分析目标 draw
 
-Use RenderDoc replay data, structured export data, or existing manifests to extract:
+从 RenderDoc replay 数据、结构化导出数据或已有 manifest 中提取：
 
-- Mesh data: positions, normals, tangents, UV sets, colors, indices, primitive topology, and world-space bounds.
-- Material inputs: base color/albedo, normal, roughness, metallic, AO, mask, opacity, transmission, subsurface, wind, terrain blend, or other game-specific slots.
-- Shader behavior: BRDF branch, alpha test, two-sided handling, normal map decode, mask channel usage, emissive/unlit branch, material constants, and texture coordinate transforms.
-- Render states: culling, depth test/write, blend state, alpha cutoff, shadow participation, and whether the draw is forward, deferred, or a special pass.
-- Lighting/environment dependencies: sun direction/intensity, sky/IBL assumptions, exposure/tonemap, and any capture-specific constants needed to match appearance.
+- Mesh 数据：position、normal、tangent、UV、color、index、primitive topology、world bounds。
+- 材质输入：base color / albedo、normal、roughness、metallic、AO、mask、opacity、transmission、subsurface、wind、terrain blend 或其他游戏专用插槽。
+- Shader 行为：BRDF 分支、alpha test、双面处理、normal map decode、mask 通道用途、emissive / unlit 分支、材质常量、纹理坐标变换。
+- Render state：culling、depth test / write、blend state、alpha cutoff、shadow 参与方式，以及 draw 属于 forward、deferred 还是特殊 pass。
+- 光照和环境依赖：太阳方向 / 强度、sky / IBL、曝光 / tonemap，以及匹配截帧外观需要的 capture-specific 常量。
 
-Document uncertainties instead of hiding them. If replay cannot run, use structured capture data, shader disassembly, resource names, and exported bind information.
+不确定的地方必须写明。如果本地 replay 失败，可以用结构化截帧数据、shader 反汇编、资源名和绑定信息继续分析。
 
-### 3. Export geometry
+### 3. 导出 geometry
 
-1. Convert the captured mesh into OBJ unless a richer project mesh path is already required.
-2. Preserve the actual vertex attributes used by the shader. If OBJ cannot store an attribute, document it in an import manifest and only approximate it when the renderer path does not use it.
-3. Reanchor the mesh around a sensible local origin while preserving scale. Store the source bounds and any transform offset in the analysis manifest.
-4. Write UVs with the V convention expected by FrameRenderer's `ObjLoader`.
-5. Place the result in `Content/Models/<AssetName>/`.
+1. 默认把截帧 mesh 转成 OBJ，除非项目已经需要更完整的 mesh 格式。
+2. 保留 shader 实际使用的 vertex attribute。OBJ 无法保存的属性，要写入 import manifest；只有渲染路径确实不用时才允许近似。
+3. 以合理 local origin 重新锚定模型，同时保持真实比例。把原始 bounds 和 transform offset 写到分析 manifest。
+4. 按 FrameRenderer `ObjLoader` 的 V 坐标约定写 UV。
+5. 输出到 `Content/Models/<AssetName>/`。
 
-### 4. Export textures
+### 4. 导出 textures
 
-1. Copy only runtime-needed textures to `Content/Textures/<AssetName>/`.
-2. Name textures by role and resource id, for example `102006_basecolor_alpha.dds` or `102010_normal.dds`.
-3. Preserve DDS format when FrameRenderer can load it. Convert only when the loader cannot support the source format.
-4. Bind fallback textures only when the capture lacks a resource or the renderer does not yet support that slot.
-5. Keep auxiliary or unsupported resources in the analysis manifest instead of silently ignoring them.
+1. 只复制运行时需要的纹理到 `Content/Textures/<AssetName>/`。
+2. 按用途和 resource id 命名，例如 `102006_basecolor_alpha.dds` 或 `102010_normal.dds`。
+3. FrameRenderer 能加载 DDS 时优先保留 DDS；只有 loader 不支持源格式时才转换。
+4. 只有截帧缺少资源或当前渲染器尚不支持该插槽时，才绑定 fallback 纹理。
+5. 辅助纹理或暂不支持的资源要写进分析 manifest，不要静默丢弃。
 
-### 5. Build the material
+### 5. 构建 material
 
-1. Choose the closest existing shading mode based on the shader evidence.
-2. For a game-specific material, add a dedicated schema and runtime mode:
-   - register the schema in the editor/material model
-   - load/save v2 JSON params and texture slots
-   - expose controls in the material editor
-   - pass mode/params/textures to `SceneRenderer`
-   - implement decode and shading in shared HLSL helpers
-   - keep forward and deferred visual semantics consistent
-3. Store the material at `Content/Materials/<AssetName>/<name>.material.json`.
-4. Bind every proven texture slot by relative Content path.
-5. Put shader-derived constants in `params` with clear names and defaults.
+1. 根据 shader 证据选择最接近的现有 `shadingMode`。
+2. 如果是游戏专用材质，需要新增专用 schema 和 runtime mode：
+   - 在编辑器 / 材质模型中注册 schema
+   - 读写 v2 JSON 参数和纹理插槽
+   - 在 Material Editor 中暴露控件
+   - 把 mode、params、textures 传给 `SceneRenderer`
+   - 在共享 HLSL helper 中实现 decode 和 shading
+   - 保持 Forward 和 Deferred 的视觉语义一致
+3. 材质保存到 `Content/Materials/<AssetName>/<name>.material.json`。
+4. 每个已证实的纹理插槽都用相对 `Content` 路径绑定。
+5. shader 推导出的常量写进 `params`，命名要清楚，并给出默认值。
 
-### 6. Create or update a level
+### 6. 创建或更新 Level
 
-1. Create a focused level at `Content/Levels/<asset_or_capture>.level.json`.
-2. Add the reconstructed mesh actor with its concrete material path.
-3. Add or reuse `Sun Light` and `Sky Atmosphere` actors when the captured appearance depends on lighting.
-4. Set camera-friendly actor transforms so the object is visible immediately on startup.
-5. If the user asks for default startup content, update `Content/Levels/default_renderdoc_scene.level.json` only after the focused level is validated.
+1. 在 `Content/Levels/<asset_or_capture>.level.json` 创建聚焦验证关卡。
+2. 添加还原出的 mesh actor，并绑定具体材质路径。
+3. 如果截帧外观依赖光照，添加或复用 `Sun Light` 和 `Sky Atmosphere`。
+4. 设置适合观察的 actor transform，保证启动后模型立刻可见。
+5. 只有聚焦关卡验证通过后，才根据用户要求更新 `Content/Levels/default_renderdoc_scene.level.json`。
 
-### 7. Validate in FrameRenderer
+### 7. 在 FrameRenderer 中验证
 
-Build Release:
+Release 编译：
 
 ```powershell
 & 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' build_vs\DX12HelloTriangle.sln /p:Configuration=Release /p:Platform=x64 /m
 ```
 
-Launch a specific level and capture a frame:
+指定 Level 并截取一帧：
 
 ```powershell
 $env:SHELLENGINE_START_LEVEL = 'Content/Levels/<level>.level.json'
@@ -117,42 +117,42 @@ $env:SHELLENGINE_CAPTURE_FRAME_INDEX = '5'
 .\build_vs\x64\Release\dx12_hello.exe
 ```
 
-Inspect the screenshot and confirm:
+检查截图并确认：
 
-- the reconstructed object is real geometry, not a proxy image
-- material slots resolve without missing-texture fallbacks unless documented
-- alpha/culling/depth behavior matches the capture intent
-- forward/deferred paths do not visibly change scale or object placement
-- the editor outliner/details/content drawer still open and interact normally
-- no `dx12_hello.exe` process remains after automated validation
+- 还原对象是真实 geometry，不是代理图片
+- 除非已记录，否则材质插槽不应落入 missing-texture fallback
+- alpha、culling、depth 行为符合截帧意图
+- Forward / Deferred 不应该改变模型比例或位置
+- editor outliner、details、content drawer 仍能正常打开和交互
+- 自动验证结束后没有残留 `dx12_hello.exe` 进程
 
-## Evidence Artifacts
+## 证据产物
 
-Add a compact analysis artifact for every imported capture object. Prefer:
+每个导入的截帧对象都要有紧凑的分析证据。优先使用：
 
-- `Docs/<AssetName>/<event>_analysis.md` for human-readable shader/material reasoning
-- `Content/Models/<AssetName>/<event>_import_manifest.json` for exact counts, bounds, resource ids, and import parameters
+- `Docs/<AssetName>/<event>_analysis.md`：记录 shader / material 推理
+- `Content/Models/<AssetName>/<event>_import_manifest.json`：记录精确 counts、bounds、resource ids、导入参数
 
-The evidence should include:
+证据至少应该包含：
 
-- source capture/manifest path
-- event id and draw label
-- mesh counts and bounds
-- shader ids or disassembly references
-- texture resource id to Content path mapping
-- constant buffer/uniform findings
-- chosen shading mode and why
-- assumptions, fallbacks, and known gaps
-- validation command and screenshot path
+- source capture / manifest path
+- event id 和 draw label
+- mesh counts 和 bounds
+- shader id 或 disassembly 引用
+- texture resource id 到 Content path 的映射
+- constant buffer / uniform 发现
+- 选择的 `shadingMode` 以及原因
+- 假设、fallback 和已知差距
+- 验证命令和截图路径
 
-## Completion Checklist
+## 完成清单
 
-- `git status --short` reviewed before edits.
-- Mesh, textures, material, and level are all under `Content`.
-- Material is v2 JSON and every renderable actor has a concrete material path.
-- Capture evidence is documented in `Docs` or an import manifest.
-- Release build passes.
-- A validation screenshot was produced and inspected.
-- UI/editor smoke paths affected by the new asset still work.
-- Final response lists changed files, capture event ids, shading mode, validation command, screenshot path, and any remaining fidelity gaps.
+- 修改前已查看 `git status --short`
+- mesh、texture、material、level 都位于 `Content`
+- material 是 v2 JSON，每个可渲染 actor 都有具体 material path
+- 截帧证据已记录在 `Docs` 或 import manifest
+- Release 编译通过
+- 已生成并检查验证截图
+- 新资源影响到的 UI / editor 冒烟路径仍正常
+- 最终回复列出变更文件、capture event id、shadingMode、验证命令、截图路径和剩余 fidelity 差距
 
