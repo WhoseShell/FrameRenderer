@@ -4,6 +4,10 @@ FrameRenderer 是一个基于 DirectX 12 的编辑器和渲染器，目标是把
 
 这个项目不是把截帧截图贴到窗口里，而是把截帧证据转成项目资源：模型、纹理、材质、shader 语义、关卡和验证截图。导入后的对象应该能像普通场景物体一样被选中、移动、指定材质、保存到 Level，并由渲染器重新渲染出来。
 
+## 当前界面
+
+![FrameRenderer 当前编辑器界面](Docs/Screenshots/frame_renderer_editor.png)
+
 ## 当前分支内容
 
 当前分支是 RenderDoc 截帧还原的最小基础工程：
