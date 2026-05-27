@@ -45,6 +45,7 @@ constexpr int IDC_TOOLBAR_SETTINGS = 5013;
 constexpr int IDC_ACTOR_SEARCH = 5014;
 constexpr int IDC_CONTENT_DRAWER_TOGGLE = 5015;
 constexpr int IDC_PLACE_ACTORS_TOGGLE = 5016;
+constexpr int IDC_RENDER_TONEMAP_OPERATOR = 5017;
 constexpr int IDC_OUTLINER_LIST = 5101;
 constexpr int IDC_APPLY_DETAILS = 5201;
 constexpr int IDC_MATERIAL_SHADING_MODE = 4100;
@@ -75,6 +76,16 @@ constexpr COLORREF kEditorEdit = RGB(46, 46, 46);
 constexpr COLORREF kEditorText = RGB(226, 226, 226);
 constexpr wchar_t kDefaultMaterialAssetPath[] = L"Materials/Default/default_pbr.material.json";
 constexpr wchar_t kDefaultStartupLevelPath[] = L"Levels/default_renderdoc_scene.level.json";
+
+int TonemapOperatorToComboIndex(ETonemapOperator tonemapOperator)
+{
+    return tonemapOperator == ETonemapOperator::AgX ? 1 : 0;
+}
+
+ETonemapOperator TonemapOperatorFromComboIndex(int index)
+{
+    return index == 1 ? ETonemapOperator::AgX : ETonemapOperator::Reinhard;
+}
 
 std::wstring ReadEnvWide(const wchar_t* name)
 {
@@ -1656,6 +1667,12 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             RenderPath = (sel == 1) ? FSimpleSceneRenderer::ERenderPath::Deferred : FSimpleSceneRenderer::ERenderPath::Forward;
             return 0;
         }
+        if ((HWND)lParam == TonemapOperatorCombo && HIWORD(wParam) == CBN_SELCHANGE)
+        {
+            const int sel = (int)SendMessageW(TonemapOperatorCombo, CB_GETCURSEL, 0, 0);
+            TonemapOperator = TonemapOperatorFromComboIndex(sel);
+            return 0;
+        }
         if ((HWND)lParam == LumenCheckbox && HIWORD(wParam) == BN_CLICKED)
         {
             const LRESULT checked = SendMessageW(LumenCheckbox, BM_GETCHECK, 0, 0);
@@ -1845,6 +1862,7 @@ LRESULT FEngine::HandleWindowMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         {
             const LRESULT checked = SendMessageW(TonemapCheckbox, BM_GETCHECK, 0, 0);
             bEnableTonemap = (checked == BST_CHECKED);
+            SyncRenderSettingsControls();
             return 0;
         }
         if ((HWND)lParam == SkyEnableCheckbox && HIWORD(wParam) == BN_CLICKED)
@@ -4299,6 +4317,13 @@ void FEngine::DrawImGuiRenderSettings()
     ImGui::Checkbox("SWRT GI", &bEnableLumenSWRT);
     ImGui::Checkbox("HWRT GI", &bEnableLumenHWRT);
     ImGui::Checkbox("Tonemap", &bEnableTonemap);
+    int tonemapIndex = TonemapOperatorToComboIndex(TonemapOperator);
+    if (!bEnableTonemap)
+        ImGui::BeginDisabled();
+    if (ImGui::Combo("Tonemap Operator", &tonemapIndex, "Reinhard\0AgX\0"))
+        TonemapOperator = TonemapOperatorFromComboIndex(tonemapIndex);
+    if (!bEnableTonemap)
+        ImGui::EndDisabled();
     ImGui::End();
 }
 
@@ -4662,6 +4687,7 @@ void FEngine::HideLegacyWin32EditorControls()
         ToolbarPanel, ToolbarTitle, ToolbarNewLevelBtn, ToolbarOpenLevelBtn, ToolbarSaveLevelBtn, ToolbarImportObjBtn, ToolbarPlaceBtn, ToolbarSettingsBtn, StatusLabel,
         EngineNameLabel, SidebarToggleBtn, SidebarSearchEdit, SidebarList, SidebarBasicLabel, SidebarRenderDocLabel,
         RenderPathLabel, RenderSettingsLabel, RenderGILabel, SunSectionLabel, AtmosphereSectionLabel, RenderPathCombo, LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox,
+        TonemapOperatorLabel, TonemapOperatorCombo,
         SkyEnableCheckbox, SunYawLabel, SunYawValueLabel, SunYawSlider, SunPitchLabel, SunPitchValueLabel, SunPitchSlider, SunIntensityLabel, SunIntensityValueLabel, SunIntensitySlider,
         RayleighLabel, RayleighValueLabel, RayleighSlider, MieLabel, MieValueLabel, MieSlider, MieGLabel, MieGValueLabel, MieGSlider, AtmoHeightLabel, AtmoHeightValueLabel, AtmoHeightSlider, SkyLabel,
         BottomPanel, ContentTitleLabel, ContentDrawerToggleBtn, TextureTitleLabel, PreviewTitleLabel, MaterialTitleLabel, ContentPathLabel, ContentActionsLabel, ContentFoldersList, ContentHintLabel,
@@ -4698,8 +4724,8 @@ void FEngine::OpenRenderSettingsDialog()
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_SIZEBOX,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            360,
-            250,
+            390,
+            320,
             Window.GetHwnd(),
             nullptr,
             wc.hInstance,
@@ -4711,7 +4737,8 @@ void FEngine::OpenRenderSettingsDialog()
 
     HWND controls[] = {
         RenderSettingsLabel, RenderPathLabel, RenderPathCombo, RenderGILabel,
-        LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox, TonemapCheckbox
+        LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox, TonemapCheckbox,
+        TonemapOperatorLabel, TonemapOperatorCombo
     };
     for (HWND h : controls)
     {
@@ -4767,6 +4794,12 @@ void FEngine::LayoutRenderSettingsDialog()
 
     if (TonemapCheckbox)
         MoveWindow(TonemapCheckbox, pad, y, innerW, 22, TRUE);
+    y += 30;
+
+    if (TonemapOperatorLabel)
+        MoveWindow(TonemapOperatorLabel, pad, y + 4, 122, 18, TRUE);
+    if (TonemapOperatorCombo)
+        MoveWindow(TonemapOperatorCombo, pad + 130, y, std::max(120, innerW - 130), 120, TRUE);
 }
 
 void FEngine::SyncRenderSettingsControls()
@@ -4781,6 +4814,11 @@ void FEngine::SyncRenderSettingsControls()
         SendMessageW(LumenHWRTCheckbox, BM_SETCHECK, bEnableLumenHWRT ? BST_CHECKED : BST_UNCHECKED, 0);
     if (TonemapCheckbox)
         SendMessageW(TonemapCheckbox, BM_SETCHECK, bEnableTonemap ? BST_CHECKED : BST_UNCHECKED, 0);
+    if (TonemapOperatorCombo)
+    {
+        SendMessageW(TonemapOperatorCombo, CB_SETCURSEL, (WPARAM)TonemapOperatorToComboIndex(TonemapOperator), 0);
+        EnableWindow(TonemapOperatorCombo, bEnableTonemap ? TRUE : FALSE);
+    }
 }
 
 /**
@@ -5175,6 +5213,8 @@ void FEngine::LayoutUI()
     bringTop(LumenCheckbox);
     bringTop(LumenSWRTCheckbox);
     bringTop(LumenHWRTCheckbox);
+    bringTop(TonemapOperatorLabel);
+    bringTop(TonemapOperatorCombo);
     bringTop(SunSectionLabel);
     bringTop(AtmosphereSectionLabel);
     bringTop(SkyEnableCheckbox);
@@ -5852,6 +5892,21 @@ void FEngine::Run(HINSTANCE hInstance)
             8, 220, SidebarWidthPx - 16, 20,
             Window.GetHwnd(), (HMENU)3010, GetModuleHandleW(nullptr), nullptr);
         SendMessageW(LumenHWRTCheckbox, BM_SETCHECK, bEnableLumenHWRT ? BST_CHECKED : BST_UNCHECKED, 0);
+
+        TonemapOperatorLabel = CreateWindowExW(
+            0, L"STATIC", L"Tonemap Operator",
+            WS_CHILD | WS_VISIBLE,
+            8, 244, SidebarWidthPx - 16, 16,
+            Window.GetHwnd(), nullptr, GetModuleHandleW(nullptr), nullptr);
+
+        TonemapOperatorCombo = CreateWindowExW(
+            0, L"COMBOBOX", nullptr,
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+            8, 262, SidebarWidthPx - 16, 120,
+            Window.GetHwnd(), MenuHandle(IDC_RENDER_TONEMAP_OPERATOR), GetModuleHandleW(nullptr), nullptr);
+        SendMessageW(TonemapOperatorCombo, CB_ADDSTRING, 0, (LPARAM)L"Reinhard");
+        SendMessageW(TonemapOperatorCombo, CB_ADDSTRING, 0, (LPARAM)L"AgX");
+        SendMessageW(TonemapOperatorCombo, CB_SETCURSEL, (WPARAM)TonemapOperatorToComboIndex(TonemapOperator), 0);
     }
 
     // Sidebar: SkyAtmosphere + Sun controls
@@ -5926,7 +5981,7 @@ void FEngine::Run(HINSTANCE hInstance)
     }
     {
         HWND fontTargets[] = {
-            RenderPathLabel, RenderPathCombo, LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox,
+            RenderPathLabel, RenderPathCombo, LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox, TonemapOperatorLabel, TonemapOperatorCombo,
             SkyEnableCheckbox, SunYawLabel, SunPitchLabel, SunIntensityLabel, RayleighLabel,
             MieLabel, MieGLabel, AtmoHeightLabel, SkyLabel
         };
@@ -5934,7 +5989,7 @@ void FEngine::Run(HINSTANCE hInstance)
             ApplyEditorFont(h);
         HWND hiddenLeftControls[] = {
             RenderSettingsLabel, RenderGILabel, RenderPathLabel, RenderPathCombo,
-            LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox,
+            LumenCheckbox, LumenSWRTCheckbox, LumenHWRTCheckbox, TonemapOperatorLabel, TonemapOperatorCombo,
             SkyEnableCheckbox, SunYawLabel, SunYawValueLabel, SunYawSlider,
             SunPitchLabel, SunPitchValueLabel, SunPitchSlider,
             SunIntensityLabel, SunIntensityValueLabel, SunIntensitySlider,
@@ -6373,6 +6428,7 @@ void FEngine::Run(HINSTANCE hInstance)
             GizmoMode == EGizmoMode::Scale,
             lightDirWs,
             bEnableTonemap,
+            TonemapOperator,
             activeSunIntensity,
             activeSky,
             0,

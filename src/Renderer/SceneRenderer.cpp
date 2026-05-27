@@ -169,7 +169,8 @@ void FSceneRenderer::Render()
     ViewInfo.Scissor = { scLeft, scTop, scRight, scBottom };
 
     // 后处理与延迟渲染常量缓冲。
-    Renderer.UpdateTonemapCB(ViewFamily.bEnableTonemap, Frame.FrameIndex, (float)rhi.GetWidth(), (float)rhi.GetHeight());
+    const ETonemapOperator tonemapOperator = ViewFamily.bEnableTonemap ? ViewFamily.TonemapOperator : ETonemapOperator::None;
+    Renderer.UpdateTonemapCB(tonemapOperator, Frame.FrameIndex, (float)rhi.GetWidth(), (float)rhi.GetHeight());
 
     if (bDeferred)
         Renderer.UpdateDeferredCB(View.Camera->Position, View.LightDirWs, ViewFamily.SunIntensity, Frame.FrameIndex);

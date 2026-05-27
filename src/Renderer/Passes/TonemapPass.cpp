@@ -95,21 +95,22 @@ void FSimpleSceneRenderer::InitTonemapPass(FD3D12RHI& rhi, const D3D12_BLEND_DES
 
 /**
  * @brief 更新 Tonemap 常量缓冲。
- * @param enableTonemap 是否启用 Tonemap。
+ * @param tonemapOperator Tonemap operator, or None for gamma-only output.
  * @param frameIndex 帧索引。
  * @return 无返回值。
  * @note 阶段：后处理参数更新阶段。
  */
-void FSimpleSceneRenderer::UpdateTonemapCB(bool enableTonemap, uint32 frameIndex, float targetWidth, float targetHeight)
+void FSimpleSceneRenderer::UpdateTonemapCB(ETonemapOperator tonemapOperator, uint32 frameIndex, float targetWidth, float targetHeight)
 {
     if (!CBMappedTonemap[frameIndex])
         return;
 
     // 填充 Tonemap 参数。
     FTonemapCB tcb{};
-    tcb.EnableTonemap = enableTonemap ? 1.0f : 0.0f;
+    tcb.EnableTonemap = (tonemapOperator != ETonemapOperator::None) ? 1.0f : 0.0f;
     tcb.Exposure = 0.6f;
     tcb.Gamma = 2.2f;
+    tcb.TonemapOperator = static_cast<float>(static_cast<uint32>(tonemapOperator));
     tcb.TargetWidth = std::max(1.0f, targetWidth);
     tcb.TargetHeight = std::max(1.0f, targetHeight);
     tcb.InvTargetWidth = 1.0f / tcb.TargetWidth;

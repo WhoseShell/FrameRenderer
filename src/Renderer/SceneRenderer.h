@@ -6,6 +6,7 @@
 #include <DirectXMath.h>
 
 #include "RHI/D3D12RHI.h"
+#include "Renderer/TonemapTypes.h"
 #include "Scene/SceneTypes.h"
 
 struct FCamera;
@@ -17,6 +18,7 @@ struct FSceneViewFamily
 {
     FD3D12RHI* RHI = nullptr;
     bool bEnableTonemap = true;
+    ETonemapOperator TonemapOperator = ETonemapOperator::AgX;
     bool bEnableLumen = false;
     bool bEnableLumenSWRT = false;
     bool bEnableLumenHWRT = false;

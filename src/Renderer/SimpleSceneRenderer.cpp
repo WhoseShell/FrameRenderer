@@ -2489,6 +2489,7 @@ void FSimpleSceneRenderer::Render(
     bool bScaleGizmo,
     const DirectX::XMFLOAT3& lightDirWs,
     bool bEnableTonemap,
+    ETonemapOperator tonemapOperator,
     float sunIntensity,
     const FSkyAtmosphereSettings& sky,
     int leftInsetPx,
@@ -2504,6 +2505,7 @@ void FSimpleSceneRenderer::Render(
     FSceneViewFamily viewFamily{};
     viewFamily.RHI = &rhi;
     viewFamily.bEnableTonemap = bEnableTonemap;
+    viewFamily.TonemapOperator = tonemapOperator;
     viewFamily.bEnableLumen = bEnableLumen;
     viewFamily.bEnableLumenSWRT = bEnableLumenSWRT;
     viewFamily.bEnableLumenHWRT = bEnableLumenHWRT;

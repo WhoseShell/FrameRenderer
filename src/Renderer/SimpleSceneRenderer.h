@@ -14,6 +14,7 @@
 #include "RenderDoc/CaptureRockRenderer.h"
 #include "RHI/D3D12RHI.h"
 #include "Renderer/MeshGeneration.h"
+#include "Renderer/TonemapTypes.h"
 #include "Scene/SceneTypes.h"
 
 #include <vector>
@@ -156,6 +157,7 @@ public:
         bool bScaleGizmo,
         const DirectX::XMFLOAT3& lightDirWs,
         bool bEnableTonemap,
+        ETonemapOperator tonemapOperator,
         float sunIntensity,
         const FSkyAtmosphereSettings& sky,
         int leftInsetPx,
@@ -218,7 +220,7 @@ private:
 
     void UpdateSkyCB(const DirectX::XMMATRIX& invViewProj, const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs,
                      float sunIntensity, const FSkyAtmosphereSettings& sky, uint32 frameIndex);
-    void UpdateTonemapCB(bool enableTonemap, uint32 frameIndex, float targetWidth, float targetHeight);
+    void UpdateTonemapCB(ETonemapOperator tonemapOperator, uint32 frameIndex, float targetWidth, float targetHeight);
     void UpdateDeferredCB(const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs, float sunIntensity, uint32 frameIndex);
     void UpdateShadowCB(const DirectX::XMFLOAT3& cameraPosWs, const DirectX::XMFLOAT3& lightDirWs, uint32 frameIndex);
     void UpdateLumenCB(FD3D12RHI& rhi, bool bUseLumen, const DirectX::XMFLOAT4X4& curViewProj, const DirectX::XMFLOAT3& cameraPosWs,
@@ -407,7 +409,7 @@ private:
         float EnableTonemap = 1.0f;
         float Exposure = 1.0f;
         float Gamma = 2.2f;
-        float _pad0 = 0.0f;
+        float TonemapOperator = 1.0f;
         float TargetWidth = 1.0f;
         float TargetHeight = 1.0f;
         float InvTargetWidth = 1.0f;

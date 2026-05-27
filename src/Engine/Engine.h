@@ -157,6 +157,8 @@ private:
     HWND LumenCheckbox = nullptr;
     HWND LumenSWRTCheckbox = nullptr;
     HWND LumenHWRTCheckbox = nullptr;
+    HWND TonemapOperatorLabel = nullptr;
+    HWND TonemapOperatorCombo = nullptr;
     HWND SkyEnableCheckbox = nullptr;
     HWND SunYawLabel = nullptr;
     HWND SunYawValueLabel = nullptr;
@@ -468,6 +470,7 @@ private:
     float SunPitch = -0.6f;
     float SunIntensity = 3.0f;
     bool bEnableTonemap = true;
+    ETonemapOperator TonemapOperator = ETonemapOperator::AgX;
     FSimpleSceneRenderer::ERenderPath RenderPath = FSimpleSceneRenderer::ERenderPath::Forward;
     bool bEnableLumen = true;
     bool bEnableLumenSWRT = false;
