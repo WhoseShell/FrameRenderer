@@ -1,3 +1,70 @@
+# AgX Tonemapping 原理、代码位置与打开方式
+
+本分支新增了 AgX Tonemapping。它不是把画面简单套一个 LUT，而是在 HDR 后处理阶段把场景线性颜色映射到更适合显示器的 SDR 输出空间：先进入更宽的 Rec.2020 工作色域，再进入 AgX 的 inset 工作域，用 `log2` 曝光区间压缩高动态范围，经过一条默认对比度多项式曲线后再通过 outset 矩阵回到显示域。相比原来的 Reinhard `x / (x + 1)`，AgX 更关注高光肩部、饱和颜色和 PBR 材质颜色的稳定性，避免亮部快速发白或高饱和颜色塌陷。
+
+参考资料：
+
+- 视频目标：https://www.youtube.com/watch?v=-ozCZf6R2r0
+- Blender 4.0 Color Management：AgX 被加入并替代 Filmic 作为新文件默认 view transform
+  https://developer.blender.org/docs/release_notes/4.0/color_management/
+- Blender Manual：AgX 面向 PBR color accuracy，并改善 Filmic 对饱和颜色的处理
+  https://docs.blender.org/manual/en/dev/render/color_management/displays_views.html
+- three.js AgX shader 参考实现：包含 Rec.2020、AgX inset/outset、EV 范围和 contrast approximation 常量
+  https://github.com/mrdoob/three.js/blob/dev/src/renderers/shaders/ShaderChunk/tonemapping_pars_fragment.glsl.js
+
+核心流程：
+
+```text
+HDR Scene Color
+  -> Exposure
+  -> Linear sRGB to Linear Rec.2020
+  -> AgX inset matrix
+  -> log2 EV normalize, min=-12.47393, max=4.026069
+  -> AgX default contrast polynomial
+  -> AgX outset matrix
+  -> display power approximation
+  -> Linear Rec.2020 to Linear sRGB
+  -> Gamma correction
+  -> BackBuffer
+```
+
+对应代码：
+
+- `shaders/tonemap.hlsl`
+  - `AgXTonemap`：AgX 主流程
+  - `AgXDefaultContrastApprox`：默认对比度多项式
+  - `LinearSRGBToLinearRec2020` / `LinearRec2020ToLinearSRGB`：sRGB 与 Rec.2020 工作色域转换
+  - `AgXInsetTransform` / `AgXOutsetTransform`：AgX 工作域矩阵
+- `src/Renderer/TonemapTypes.h`
+  - `ETonemapOperator::None / Reinhard / AgX`
+- `src/Renderer/Passes/TonemapPass.cpp`
+  - `UpdateTonemapCB` 把当前 Tonemap operator 写入后处理常量缓冲
+- `src/Renderer/SceneRenderer.cpp` 与 `src/Renderer/SimpleSceneRenderer.cpp`
+  - 把编辑器选择的 Tonemap operator 传入渲染帧
+- `src/Engine/Engine.cpp`
+  - `Render Settings` 中的 `Tonemap Operator` 下拉框，支持 `Reinhard` 与 `AgX`
+- `Docs/AgXTonemapping.md`
+  - 更短的实现说明和对比说明
+
+打开方式：
+
+```powershell
+git fetch origin AgX_Tonemapping
+git switch --track origin/AgX_Tonemapping
+
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' build_vs\DX12HelloTriangle.sln /p:Configuration=Release /p:Platform=x64 /m
+.\build_vs\Release\dx12_hello.exe
+```
+
+进入编辑器后，打开顶部 `Settings` / `Render Settings`，确认：
+
+```text
+Tonemap = On
+Tonemap Operator = AgX
+```
+
+如果需要和旧效果对比，把 `Tonemap Operator` 切回 `Reinhard` 即可。
+
 # FrameRenderer
 
 FrameRenderer 是一个基于 DirectX 12 的编辑器和渲染器，目标是把 RenderDoc 截帧里的真实资源还原成可运行、可编辑、可保存的渲染场景。
