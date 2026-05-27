@@ -78,6 +78,24 @@
       "mieScale": 1.000000,
       "mieG": 0.800000,
       "atmosphereHeight": 12.000000
+    },
+    {
+      "id": 5,
+      "name": "Tonemap Color Chart",
+      "type": "Static Mesh",
+      "asset": "Models/TonemapColorChart/tonemap_color_chart.obj",
+      "material": "Materials/TonemapColorChart/tonemap_color_chart.material.json",
+      "position": [2.000000, 1.150000, 2.600000],
+      "scale": [1.000000, 1.000000, 1.000000],
+      "albedo": [1.000000, 1.000000, 1.000000],
+      "metallic": 0.000000,
+      "roughness": 0.500000,
+      "lightIntensity": 3.000000,
+      "skyEnabled": true,
+      "rayleighScale": 1.000000,
+      "mieScale": 1.000000,
+      "mieG": 0.800000,
+      "atmosphereHeight": 12.000000
     }
   ]
 }
