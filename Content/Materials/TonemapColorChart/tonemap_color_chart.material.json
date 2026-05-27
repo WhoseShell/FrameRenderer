@@ -5,9 +5,9 @@
   "shadingMode": "Unlit",
   "params": {
     "Color": [1.000000, 1.000000, 1.000000],
-    "Intensity": 4.000000
+    "Intensity": 1.600000
   },
   "textures": {
-    "Color": "Textures/TonemapColorChart/tonemap_color_chart.tga"
+    "Color": "Textures/TonemapColorChart/tonemap_color_chart.png"
   }
 }
