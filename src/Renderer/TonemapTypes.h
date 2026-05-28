@@ -7,4 +7,5 @@ enum class ETonemapOperator : uint32
     None = 0,
     Reinhard = 1,
     AgX = 2,
+    ACES = 3,
 };

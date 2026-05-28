@@ -79,12 +79,22 @@ constexpr wchar_t kDefaultStartupLevelPath[] = L"Levels/default_renderdoc_scene.
 
 int TonemapOperatorToComboIndex(ETonemapOperator tonemapOperator)
 {
-    return tonemapOperator == ETonemapOperator::AgX ? 1 : 0;
+    switch (tonemapOperator)
+    {
+    case ETonemapOperator::AgX: return 1;
+    case ETonemapOperator::ACES: return 2;
+    default: return 0;
+    }
 }
 
 ETonemapOperator TonemapOperatorFromComboIndex(int index)
 {
-    return index == 1 ? ETonemapOperator::AgX : ETonemapOperator::Reinhard;
+    switch (index)
+    {
+    case 1: return ETonemapOperator::AgX;
+    case 2: return ETonemapOperator::ACES;
+    default: return ETonemapOperator::Reinhard;
+    }
 }
 
 std::wstring ReadEnvWide(const wchar_t* name)
@@ -4320,7 +4330,7 @@ void FEngine::DrawImGuiRenderSettings()
     int tonemapIndex = TonemapOperatorToComboIndex(TonemapOperator);
     if (!bEnableTonemap)
         ImGui::BeginDisabled();
-    if (ImGui::Combo("Tonemap Operator", &tonemapIndex, "Reinhard\0AgX\0"))
+    if (ImGui::Combo("Tonemap Operator", &tonemapIndex, "Reinhard\0AgX\0ACES 1.0 RRT+ODT\0"))
         TonemapOperator = TonemapOperatorFromComboIndex(tonemapIndex);
     if (!bEnableTonemap)
         ImGui::EndDisabled();
@@ -5906,6 +5916,7 @@ void FEngine::Run(HINSTANCE hInstance)
             Window.GetHwnd(), MenuHandle(IDC_RENDER_TONEMAP_OPERATOR), GetModuleHandleW(nullptr), nullptr);
         SendMessageW(TonemapOperatorCombo, CB_ADDSTRING, 0, (LPARAM)L"Reinhard");
         SendMessageW(TonemapOperatorCombo, CB_ADDSTRING, 0, (LPARAM)L"AgX");
+        SendMessageW(TonemapOperatorCombo, CB_ADDSTRING, 0, (LPARAM)L"ACES 1.0 RRT+ODT");
         SendMessageW(TonemapOperatorCombo, CB_SETCURSEL, (WPARAM)TonemapOperatorToComboIndex(TonemapOperator), 0);
     }
 
