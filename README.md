@@ -16,6 +16,192 @@
 - ACES 1.0.3 官方 CTL 参考实现：`RRT.ctl` 与 `ODT.Academy.Rec709_100nits_dim.ctl`
   https://github.com/aces-aswf/aces-core/tree/v1.0.3/transforms/ctl
 
+## 三种 Tonemapping 公式
+
+下面的 `C` 表示曝光后的 HDR scene-linear RGB。除矩阵乘法和特别说明外，`+ / - / * / / / pow / log` 都按 RGB 分量逐分量执行。
+
+### Reinhard
+
+Reinhard 是当前工程里的最基础对照组。它只做一个逐通道压缩：
+
+```text
+C_hdr = max(C, 0)
+C_ldr = C_hdr / (C_hdr + 1)
+C_out = pow(C_ldr, 1 / gamma)
+```
+
+其中当前 `gamma = 2.2`。这个曲线简单稳定，但没有电影色彩管理里的色域、白点、观看环境和显示设备建模。
+
+### AgX
+
+AgX 路径对应 `shaders/tonemap.hlsl` 里的 `AgXTonemap`。当前实现先把 linear sRGB 转到 Rec.2020，再进入 AgX inset 工作域，压到 log2 EV 区间，经过默认对比度多项式，然后做 outset、AgX 的 `2.2` power shaping，最后回到 linear sRGB。
+
+```text
+C_2020 = M_srgb_to_rec2020 * C
+C_in   = M_agx_inset * C_2020
+
+E = saturate((log2(max(C_in, 1e-10)) - minEv) / (maxEv - minEv))
+minEv = -12.47393
+maxEv =  4.026069
+
+P(E) = 15.5 E^6
+     - 40.14 E^5
+     + 31.96 E^4
+     - 6.868 E^3
+     + 0.4298 E^2
+     + 0.1191 E
+     - 0.00232
+
+C_outset = M_agx_outset * P(E)
+C_agx    = M_rec2020_to_srgb * pow(max(C_outset, 0), 2.2)
+C_out    = pow(saturate(C_agx), 1 / gamma)
+```
+
+当前使用的矩阵：
+
+```text
+M_srgb_to_rec2020 =
+[ 0.6274  0.3293  0.0433
+  0.0691  0.9195  0.0113
+  0.0164  0.0880  0.8956 ]
+
+M_rec2020_to_srgb =
+[  1.6605 -0.5876 -0.0728
+  -0.1246  1.1329 -0.0083
+  -0.0182 -0.1006  1.1187 ]
+
+M_agx_inset =
+[ 0.8566271533  0.0951212405  0.0482516061
+  0.1373189729  0.7612419906  0.1014390365
+  0.1118982130  0.0767994186  0.8113023684 ]
+
+M_agx_outset =
+[  1.1271005818 -0.1106066431 -0.0164939387
+  -0.1413297635  1.1578237022 -0.0164939387
+  -0.1413297635 -0.1106066431  1.2519364066 ]
+```
+
+### ACES 1.0 RRT + Rec.709 100nits dim ODT
+
+ACES 路径对应 `ACESOfficialTonemap`。它不是一个单独曲线，而是把输入转换到 ACES AP0，然后执行 ACES 1.0 的 RRT，再执行 Rec.709 100nits dim ODT。当前实现为了在交换链里直接输出，ACES 分支内部已经做了 BT.1886 `2.4` 显示编码，因此不会再走公共 `gamma=2.2` 步骤。
+
+总体组合：
+
+```text
+A     = M_srgbD65_to_acesAP0D60 * max(C, 0)
+OCES  = RRT(A)
+C_out = ODT_Rec709_100nits_dim(OCES)
+```
+
+RRT 的主要公式：
+
+```text
+sat0 = saturation(A) = (max(A) - max(min(A), tiny)) / max(max(A), 1e-2)
+
+YC(A) = (R + G + B + 1.75 * sqrt(B*(B-G) + G*(G-R) + R*(R-B))) / 3
+
+sigmoid(x) = (1 + sign(x) * (1 - max(1 - abs(x / 2), 0)^2)) / 2
+
+glow_gain = 0.05 * sigmoid((saturation(A) - 0.4) / 0.2)
+glow_mid  = 0.08
+
+glow(YC) =
+  glow_gain,                         YC <= 2/3 * glow_mid
+  0,                                 YC >= 2   * glow_mid
+  glow_gain * (glow_mid / YC - 1/2), otherwise
+
+A_glow = A * (1 + glow(YC(A)))
+```
+
+RRT red modifier：
+
+```text
+hue = degrees(atan2(sqrt(3) * (G - B), 2R - G - B))
+centered_hue = center_hue(hue, 0 degrees)
+hue_weight = cubic_basis_shaper(centered_hue, 135 degrees)
+
+A_red.r = A_glow.r + hue_weight * sat0 * (0.03 - A_glow.r) * (1 - 0.82)
+A_red.g = A_glow.g
+A_red.b = A_glow.b
+```
+
+RRT 渲染空间与 tone scale：
+
+```text
+R_ap1 = M_ap0_to_ap1 * max(A_red, 0)
+R_sat = M_rrt_sat * max(R_ap1, 0)
+
+R_toned.r = segmented_spline_c5(R_sat.r)
+R_toned.g = segmented_spline_c5(R_sat.g)
+R_toned.b = segmented_spline_c5(R_sat.b)
+
+OCES = M_ap1_to_ap0 * R_toned
+```
+
+ODT 的主要公式：
+
+```text
+P_ap1 = M_ap0_to_ap1 * OCES
+
+P_toned.r = segmented_spline_c9(P_ap1.r)
+P_toned.g = segmented_spline_c9(P_ap1.g)
+P_toned.b = segmented_spline_c9(P_ap1.b)
+
+linearCV = (P_toned - 0.02) / (48.0 - 0.02)
+linearCV = dark_to_dim_surround(linearCV)
+linearCV = M_odt_sat * linearCV
+
+XYZ_D60 = M_ap1_to_xyz * linearCV
+XYZ_D65 = M_d60_to_d65 * XYZ_D60
+Rec709_linear = saturate(M_xyz_to_rec709 * XYZ_D65)
+
+C_out = pow(Rec709_linear, 1 / 2.4)
+```
+
+`segmented_spline_c5` 和 `segmented_spline_c9` 都使用同一个二次 B-spline 形式。给定某段的三个系数 `c0, c1, c2` 和局部坐标 `t`：
+
+```text
+B(c0, c1, c2, t) =
+  (0.5*c0 - c1 + 0.5*c2) * t^2
+  + (-c0 + c1) * t
+  + 0.5 * (c0 + c1)
+
+segmented_spline(x):
+  logx = log10(max(x, epsilon))
+  选择 low 或 high 区间，计算 knotCoord、j、t
+  logy = B(coefs[j], coefs[j+1], coefs[j+2], t)
+  y = 10^logy
+```
+
+RRT `segmented_spline_c5` 当前系数：
+
+```text
+coefsLow  = [-4.0000000000, -4.0000000000, -3.1573765773,
+             -0.4852499958,  1.8477324706,  1.8477324706]
+coefsHigh = [-0.7185482425,  2.0810307172,  3.6681241237,
+              4.0000000000,  4.0000000000,  4.0000000000]
+minPoint = (0.18 * 2^-15, 0.0001)
+midPoint = (0.18,         4.8)
+maxPoint = (0.18 * 2^18,  10000.0)
+```
+
+ODT `segmented_spline_c9` 当前系数：
+
+```text
+coefsLow  = [-1.6989700043, -1.6989700043, -1.4779000000,
+             -1.2291000000, -0.8648000000, -0.4480000000,
+              0.0051800000,  0.4511080334,  0.9113744414,
+              0.9113744414]
+coefsHigh = [ 0.5154386965,  0.8470437783,  1.1358000000,
+              1.3802000000,  1.5197000000,  1.5985000000,
+              1.6467000000,  1.6746091357,  1.6878733390,
+              1.6878733390]
+minPoint = (0.0028798932,    0.02)
+midPoint = (4.8,             4.8)
+maxPoint = (1005.7193595080, 48.0)
+slopeHigh = 0.04
+```
+
 核心流程：
 
 ```text
